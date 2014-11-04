@@ -975,13 +975,13 @@ def main():
     help_str = '[USAGE] %s <port_number> <user_list> <save_file>' % sys.argv[0]
 
     if len(sys.argv) != 4:
-        normal_print('Wrong arguments!!\n%s' % help_str, prompt=False)
+        normal_print('Wrong arguments!!\n%s\n' % help_str, prompt=False)
         exit(1)
 
     try:
         port = int(sys.argv[1])
     except ValueError:
-        normal_print('Wrong port!!\n%s' % help_str, prompt=False)
+        normal_print('Wrong port!!\n%s\n' % help_str, prompt=False)
         exit(1)
 
     users_pool = UsersPool(TextChain(sys.argv[3]))

@@ -178,6 +178,9 @@ def nums_to_rcs(lines, nums):
         else:
             break
         num = num_max + 1
+    for index in range(len(rcs)):
+        if rcs[index] is None:
+            rcs[index] = (len(lines) - 1, len(lines[-1]))
     return rcs
 
 
@@ -224,6 +227,8 @@ def main():
             raise Exception('from server: ' + response[JSON_TOKEN.ERROR])
         else:
             lines = re.split(r'\n', response[JSON_TOKEN.TEXT])
+            if not lines:
+                lines = ['']
             rcs = nums_to_rcs(lines, response[JSON_TOKEN.CURSORS])
             my_rc = nums_to_rcs(lines, [response[JSON_TOKEN.CURSOR]])[0]
 
@@ -247,11 +252,14 @@ function! SharedVimEventsHandler(event_name)
     if exists('b:shared_vim_server_name')
         if a:event_name == 'VimCursorMoved'
             call SharedVimSync()
+        elseif a:event_name == 'VimCursorMovedI'
+            call SharedVimSync()
         endif
     endif
 endfunction
 
 
 autocmd CursorMoved * call SharedVimEventsHandler('VimCursorMoved')
+autocmd CursorMovedI * call SharedVimEventsHandler('VimCursorMovedI')
 
 highlight SharedVimOthersCursors ctermbg=darkred
