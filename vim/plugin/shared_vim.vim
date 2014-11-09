@@ -1,3 +1,33 @@
+
+
+function! SharedVimUsePython2()
+    if has('python')
+        command! -nargs=* SharedVimPython python <args>
+        let s:shared_vim_python_version = 2
+    else
+        echoerr 'The command python is not supported by this version of vim'
+    endif
+endfunc
+
+
+function! SharedVimUsePython3()
+    if has('python3')
+        command! -nargs=* SharedVimPython python3 <args>
+        let s:shared_vim_python_version = 3
+    else
+        echoerr 'The command python3 is not supported by this version of vim'
+    endif
+endfunc
+
+
+let s:shared_vim_python_version = -1
+if has('python3')
+    call SharedVimUsePython3()
+elseif has('python')
+    call SharedVimUsePython2()
+endif
+
+
 function! SharedVimConnect(server_name, port, identity)
     let b:shared_vim_server_name = a:server_name
     let b:shared_vim_port = a:port
@@ -16,7 +46,11 @@ endfunction
 
 
 function! SharedVimSync()
-python << EOF
+    if s:shared_vim_python_version < 0
+        echoerr 'No python command.'
+        return 0
+    endif
+SharedVimPython << EOF
 import bisect
 import json
 import re
@@ -742,6 +776,7 @@ def main():
 main()
 EOF
     let b:shared_vim_init = 0
+    return 1
 endfunction
 
 
