@@ -1,33 +1,20 @@
-
-
-function! SharedVimUsePython2()
-    if has('python')
-        command! -nargs=* SharedVimPython python <args>
-        let s:shared_vim_python_version = 2
-    else
-        echoerr 'The command python is not supported by this version of vim'
-    endif
-endfunc
-
-
-function! SharedVimUsePython3()
-    if has('python3')
-        command! -nargs=* SharedVimPython python3 <args>
-        let s:shared_vim_python_version = 3
-    else
-        echoerr 'The command python3 is not supported by this version of vim'
-    endif
-endfunc
-
-
-let s:shared_vim_python_version = -1
-if has('python3')
-    call SharedVimUsePython3()
-elseif has('python')
-    call SharedVimUsePython2()
+"""""""""""""""""""""""" Global variable for settings """"""""""""""""""""""""""
+if !exists('g:shared_vim_force_to_use')
+    let g:shared_vim_python3_first = 1
 endif
 
 
+if !exists('g:shared_vim_timeout')
+    let g:shared_vim_timeout = 5
+endif
+
+
+if !exists('g:shared_vim_num_groups')
+    let g:shared_vim_num_groups = 5
+endif
+
+
+""""""""""""""""""""" Functions supplies by this plugin. """""""""""""""""""""""
 function! SharedVimConnect(server_name, port, identity)
     let b:shared_vim_server_name = a:server_name
     let b:shared_vim_port = a:port
@@ -42,15 +29,58 @@ function! SharedVimDisconnect()
     unlet! b:shared_vim_port
     unlet! b:shared_vim_identity
     unlet! b:shared_vim_init
+    let b:shared_vim_todo = 'disconnect'
+    call SharedVimMainFunc()
 endfunction
 
 
 function! SharedVimSync()
-    if s:shared_vim_python_version < 0
-        echoerr 'No python command.'
+    let b:shared_vim_todo = 'sync'
+    call SharedVimMainFunc()
+    let b:shared_vim_init = 0
+endfunction
+
+
+"""""""""""""""""""""""""""" Setup for this plugin """""""""""""""""""""""""""""
+" Highlight for other users.
+for i in range(1, 5)
+    exec 'hi SharedVimNor' . i . ' ctermbg=darkyellow'
+    exec 'hi SharedVimIns' . i . ' ctermbg=darkred'
+    exec 'hi SharedVimVbk' . i . ' ctermbg=darkblue'
+endfor
+
+
+" Sync
+autocmd! CursorMoved * call  SharedVimSync()
+autocmd! CursorMovedI * call SharedVimSync()
+autocmd! CursorHold * call   SharedVimSync()
+autocmd! CursorHoldI * call  SharedVimSync()
+autocmd! InsertEnter * call  SharedVimSync()
+autocmd! InsertLeave * call  SharedVimSync()
+
+
+"""""""""""""""""""""""""""""""" Main procedure """"""""""""""""""""""""""""""""
+function! SharedVimChoosePythonVersion()
+    if (g:shared_vim_python3_first || !has('python')) && has('python3')
+        command! -nargs=* SharedVimPython python3 <args>
+        return 1
+    elseif has('python')
+        command! -nargs=* SharedVimPython python <args>
+        return 1
+    else
         return 0
     endif
+endfunction
+
+
+function! SharedVimMainFunc()
+    if !SharedVimChoosePythonVersion()
+        echoerr 'Sorry, this plugin is not supported by this version of vim.'
+        return
+    endif
 SharedVimPython << EOF
+# python << EOF
+# ^^ Force vim highlighting the python code below.
 import bisect
 import json
 import re
@@ -750,14 +780,21 @@ def set_other_visual(vim_info, name, mode, beg, end):
                 vim_info.highlight[name].add_visual((row, col))
 
 
-class ServerError(Exception):
-    """Error raised by server."""
-    pass
+def setup_default_value(info):
+    """Setups the default from the gived vim_info.
+    
+    Args:
+        vim_info: An instance of VimInfo.
+    """
+    TIMEOUT = info.var.shared_vim_timeout
+    NUM_GROUPS = info.var.shared_vim_num_groups
+
 
 def main():
     """Main function."""
     try:
         vim_info = VimInfo()
+        setup_default_value(vim_info)
         conn = TCPClient(vim_info)
         response = conn.request(get_my_info(vim_info))
         conn.close()
@@ -767,47 +804,10 @@ def main():
         set_others_info(vim_info, response)
     except TCPClientError as e:
         print(e)
-    except ServerError as e:
-        print(e)
     except Exception as e:
         import sys
         print('?? %r' % e)
 
 main()
 EOF
-    let b:shared_vim_init = 0
-    return 1
 endfunction
-
-
-function! SharedVimEventsHandler(event_name)
-    if exists('b:shared_vim_server_name')
-        if a:event_name == 'CursorMoved'
-            call SharedVimSync()
-        elseif a:event_name == 'CursorMovedI'
-            call SharedVimSync()
-        elseif a:event_name == 'CursorHold'
-            call SharedVimSync()
-        elseif a:event_name == 'CursorHoldI'
-            call SharedVimSync()
-        elseif a:event_name == 'InsertEnter'
-            call SharedVimSync()
-        elseif a:event_name == 'InsertLeave'
-            call SharedVimSync()
-        endif
-    endif
-endfunction
-
-for i in range(1, 5)
-    exec 'hi SharedVimNor' . i . ' ctermbg=darkyellow'
-    exec 'hi SharedVimIns' . i . ' ctermbg=darkred'
-    exec 'hi SharedVimVbk' . i . ' ctermbg=darkblue'
-endfor
-
-autocmd! CursorMoved * call SharedVimEventsHandler('CursorMoved')
-autocmd! CursorMovedI * call SharedVimEventsHandler('CursorMovedI')
-autocmd! CursorHold * call SharedVimEventsHandler('CursorHold')
-autocmd! CursorHoldI * call SharedVimEventsHandler('CursorHoldI')
-autocmd! InsertEnter * call SharedVimEventsHandler('InsertEnter')
-autocmd! InsertLeave * call SharedVimEventsHandler('InsertLeave')
-
