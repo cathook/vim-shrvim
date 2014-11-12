@@ -19,6 +19,7 @@ TIMEOUT = 5
 
 class _JSON_TOKEN:  # pylint:disable=W0232
     """Enumeration the Ttken strings for json object."""
+    BYE = 'bye'  # Resets the user and do nothong.
     CURSORS = 'cursors'  # other users' cursor position
     ERROR = 'error'  # error string
     IDENTITY = 'identity'  # identity of myself
@@ -193,11 +194,13 @@ class _TCPConnectionHandler(threading.Thread):
         identity = request[_JSON_TOKEN.IDENTITY]
         if identity not in self._users_text_manager.get_users_info():
             return None
-        if request[_JSON_TOKEN.INIT]:
+        if request.get(_JSON_TOKEN.INIT) or request.get(_JSON_TOKEN.BYE, False):
             self._users_text_manager.reset_user(identity)
             request[_JSON_TOKEN.TEXT] = ''
-            for mark in request[_JSON_TOKEN.CURSORS]:
+            for mark in request.get(_JSON_TOKEN.CURSORS, []):
                 request[_JSON_TOKEN.CURSORS][mark] = 0
+            if _JSON_TOKEN.BYE in request:
+                return None
         else:
             auth = self._users_text_manager.get_users_info()[identity].authority
             if auth < AUTHORITY.READWRITE:
