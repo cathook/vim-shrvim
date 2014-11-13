@@ -1,101 +1,100 @@
-"""""""""""""""""""""""" Global variable for settings """"""""""""""""""""""""""
-if !exists('g:shared_vim_force_to_use')
-    let g:shared_vim_python3_first = 1
+"""""""""""""""""""""""""""""""""""" Commands """"""""""""""""""""""""""""""""""
+command! -nargs=0 SharedVimTryUsePython3 call _SharedVimTryUsePython3(1)
+command! -nargs=0 SharedVimTryUsePython2 call _SharedVimTryUsePython2(1)
+command! -nargs=+ SharedVimConnect call _SharedVimCallPythonFunc('connect', [<f-args>])
+command! -nargs=0 SharedVimDisconnect call _SharedVimCallPythonFunc('disconnect', [<f-args>])
+command! -nargs=0 SharedVimSync call _SharedVimCallPythonFunc('sync', [<f-args>])
+command! -nargs=0 SharedVimShowInfo call _SharedVimCallPythonFunc('show_info', [<f-args>])
+
+
+"""""""""""""""""""""""""" Global variable for settings """"""""""""""""""""""""
+if !exists('g:shared_vim_timeout')
+    let g:shared_vim_timeout = 5
+endif
+
+if !exists('g:shared_vim_num_groups')
+    let g:shared_vim_num_groups = 5
 endif
 
 
-""""""""""""""""""""" Functions supplies by this plugin. """""""""""""""""""""""
-function! SharedVimConnect(server_name, port, identity)
-    let b:shared_vim_server_name = a:server_name
-    let b:shared_vim_port = a:port
-    let b:shared_vim_identity = a:identity
-    let b:shared_vim_init = 1
-    call SharedVimSync()
-endfunction
-
-
-function! SharedVimDisconnect()
-    let b:shared_vim_goal = 'disconnect'
-    call SharedVimMainFunc()
-    unlet! b:shared_vim_server_name
-    unlet! b:shared_vim_port
-    unlet! b:shared_vim_identity
-    unlet! b:shared_vim_init
-endfunction
-
-
-function! SharedVimSync()
-    let b:shared_vim_goal = 'sync'
-    call SharedVimMainFunc()
-    let b:shared_vim_init = 0
-endfunction
-
-
-"""""""""""""""""""""""""""" Setup for this plugin """""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""" Setup """"""""""""""""""""""""""""""""""""
 " Highlight for other users.
-for i in range(1, g:shared_vim_num_groups)
+for i in range(0, 100)
     exec 'hi SharedVimNor' . i . ' ctermbg=darkyellow'
     exec 'hi SharedVimIns' . i . ' ctermbg=darkred'
     exec 'hi SharedVimVbk' . i . ' ctermbg=darkblue'
 endfor
 
 
-" Sync
-function! SharedVimTrySync()
-    if exists('b:shared_vim_server_name')
-        call SharedVimSync()
-    endif
-endfunction
-
 " Auto commands
-autocmd! CursorMoved * call  SharedVimTrySync()
-autocmd! CursorMovedI * call SharedVimTrySync()
-autocmd! CursorHold * call   SharedVimTrySync()
-autocmd! CursorHoldI * call  SharedVimTrySync()
-autocmd! InsertEnter * call  SharedVimTrySync()
-autocmd! InsertLeave * call  SharedVimTrySync()
+autocmd! CursorMoved * SharedVimSync
+autocmd! CursorMovedI * SharedVimSync
+autocmd! CursorHold * SharedVimSync
+autocmd! CursorHoldI * SharedVimSync
+autocmd! InsertEnter * SharedVimSync
+autocmd! InsertLeave * SharedVimSync
 
 
-"""""""""""""""""""""""""""""""" Main procedure """"""""""""""""""""""""""""""""
-function! SharedVimChoosePythonVersion()
-    if (g:shared_vim_python3_first || !has('python')) && has('python3')
+""""""""""""""""""""""""""""""""""" Functions """"""""""""""""""""""""""""""""""
+function! _SharedVimTryUsePython3(show_err)
+    if has('python3')
         command! -nargs=* SharedVimPython python3 <args>
-        return 1
-    elseif has('python')
-        command! -nargs=* SharedVimPython python <args>
+        call _SharedVimSetup()
         return 1
     else
+        if a:show_err
+            echoerr 'Sorry, :python3 is not supported in this version'
+        endif
         return 0
     endif
 endfunction
 
 
-function! SharedVimMainFunc()
-    if !SharedVimChoosePythonVersion()
-        echoerr 'Sorry, this plugin is not supported by this version of vim.'
-        return
+function! _SharedVimTryUsePython2(show_err)
+    if has('python')
+        command! -nargs=* SharedVimPython python <args>
+        call _SharedVimSetup()
+        return 1
+    else
+        if a:show_err
+            echoerr 'Sorry, :python is not supported in this version'
+        endif
+        return 0
     endif
+endfunction
+
+
+function! _SharedVimCallPythonFunc(func_name, args)
+    if exists('g:shared_vim_setupped') && g:shared_vim_setupped == 1
+        if len(a:args) == 0
+            exe 'SharedVimPython ' . a:func_name . '()'
+        else
+            let args_str = '"' . join(a:args, '", "') . '"'
+            exe 'SharedVimPython ' . a:func_name . '(' . args_str . ')'
+        endif
+    endif
+endfunctio
+
+
+function! _SharedVimSetup()
 SharedVimPython << EOF
 # python << EOF
 # ^^ Force vim highlighting the python code below.
 import bisect
 import json
 import re
-import six
 import socket
 import sys
 import vim
 import zlib
 
-if sys.version_info[0] >= 3:
+if sys.version_info[0] == 3:
     unicode = str
-
-DEFAULT_NUM_GROUPS = 5  # Default number of groups.
-DEFAULT_TIMEOUT = 5  # Default timeout.
 
 class GOALS:  # pylint:disable=W0232
     SYNC = 'sync'  # Sync.
     DISCONNECT = 'disconnect'  # Disconnect.
+    SHOW_INFO = 'show_info'  # Shows the users.
 
 class CURSOR_MARK:  # pylint:disable=W0232
     """Enumeration type of cursor marks."""
@@ -126,17 +125,20 @@ class VARNAMES:  # pylint: disable=W0232
     SERVER_NAME = PREFIX + 'server_name'  # Server name.
     SERVER_PORT = PREFIX + 'port'  # Server port.
     TIMEOUT = PREFIX + 'timeout'  # Timeout for TCPConnection.
+    USERS = PREFIX + 'users'  # List of users.
     GOAL = PREFIX + 'goal'  # Goal of this python code.
 
 # Name of the normal cursor group.
 NORMAL_CURSOR_GROUP = lambda x: 'SharedVimNor%d' % x
 
 # Name of the insert cursor group.
-INSERT_CURSOR_GROUP = lambda x: 'InsertVimNor%d' % x
+INSERT_CURSOR_GROUP = lambda x: 'SharedVimIns%d' % x
 
 # Name of the visual group.
-VISUAL_GROUP = lambda x: 'VisualVimNor%d' % x
+VISUAL_GROUP = lambda x: 'SharedVimVbk%d' % x
 
+DEFAULT_TIMEOUT = 5
+DEFAULT_NUM_GROUPS = 5
 
 class JSON_TOKEN:  # pylint:disable=W0232
     """Enumeration the Ttken strings for json object."""
@@ -149,6 +151,94 @@ class JSON_TOKEN:  # pylint:disable=W0232
     NICKNAME = 'nickname'  # nick name of the user.
     OTHERS = 'others'  # other users info.
     TEXT = 'text'  # text content in the buffer
+
+
+if hasattr(vim, 'options'):
+    vim_options = vim.options
+else:
+    class SimpleVimOptions(object):
+        """An alternative implement of vim.options when it is not exists."""
+        def __getitem__(self, option_name):
+            """Gets the specified vim option.
+
+            Args:
+                option_name: Name of the option to get.
+
+            Return:
+                The value in string.
+            """
+            return vim.eval('&' + option_name)
+
+    vim_options = SimpleVimOptions()
+
+
+if not hasattr(vim, 'vars') or not hasattr(vim.current.buffer, 'vars') or True:
+    class SimpleVimVars(object):
+        """An alternative implement of vim.vars/vim.current.buffer.vars.
+
+        Attributes:
+            _prefix: The prefix of the variable name.  For example, "b:" for
+                    buffer's variable, "g:" for global variable.
+        """
+        _STRING_NOTATION = 's'
+        _NUMBER_NOTATION = 'n'
+
+        def __init__(self, prefix):
+            """Constructor.
+
+            Args:
+                prefix: The prefix of the variable name.
+            """
+            self._prefix = prefix
+
+        def __getitem__(self, variable_name):
+            """Gets the specified vim variable.
+
+            Args:
+                variable_name: Name of the variable to get.
+
+            Return:
+                The value.
+            """
+            value = vim.eval(self._prefix + variable_name)
+            if value.startswith(self._STRING_NOTATION):
+                return value[1 : ]
+            else:
+                return int(value[1 : ])
+
+        def __setitem__(self, variable_name, value):
+            """Sets the specifiec vim variable.
+
+            Args:
+                variable_name: Name of the variable to set.
+                value: The new value.
+            """
+            if isinstance(value, bytes):
+                value = self._STRING_NOTATION + value
+            else:
+                value = '%s%d' % (self._NUMBER_NOTATION, value)
+            vim.command('let %s%s = "%s"' %
+                        (self._prefix, variable_name, value))
+
+        def __delitem__(self, variable_name):
+            """Deletes the specifiec vim variable.
+
+            Args:
+                variable_name: Name of the variable to delete.
+           """
+            vim.command('unlet %s%s' % (self._prefix, variable_name))
+
+        def __contains__(self, variable_name):
+            """Checks whether the variable is exist or not.
+
+            Args:
+                variable_name: Name of the variable to check.
+
+            Return:
+                True if the variable exists; otherwise, False.
+            """
+            return vim.eval('exists("%s%s")' %
+                            (self._prefix, variable_name)) == '1'
 
 
 class JSONPackage(object):
@@ -241,8 +331,26 @@ class JSONPackage(object):
         return body_byte.decode(JSONPackage.ENCODING)
 
 
-class VimVarInfo(object):  # pylint: disable=W0232
-    """Gets/sets variables in vim."""
+class VimVarInfo(object):
+    """Gets/sets variables in vim.
+
+    Attributes:
+        _getter: A function which will return the object for this class to
+                access this variablies.
+    """
+    def __init__(self, var=None, getter=None):
+        """Constructor.
+
+        Args:
+            var: The object for this class to access the vars.
+            getter: If it is not None, it must be a function which will return
+                    the object for this class to access the vars.
+        """
+        if getter is None:
+            self._getter = lambda : var
+        else:
+            self._getter = getter
+
     def __getitem__(self, variable_name):
         """Gets the specified vim variable.
 
@@ -264,9 +372,9 @@ class VimVarInfo(object):  # pylint: disable=W0232
         Return:
             default_value if the value is not exists, otherwise the value.
         """
-        if variable_name not in vim.current.buffer.vars:
+        if variable_name not in self._getter():
             return default_value
-        return VimInfo.transform_to_py(vim.current.buffer.vars[variable_name])
+        return VimInfo.transform_to_py(self._getter()[variable_name])
 
     def __setitem__(self, variable_name, value):
         """Sets the specifiec vim variable.
@@ -275,7 +383,7 @@ class VimVarInfo(object):  # pylint: disable=W0232
             variable_name: Name of the variable to set.
             value: The new value.
         """
-        vim.current.buffer.vars[variable_name] = VimInfo.transform_to_vim(value)
+        self._getter()[variable_name] = VimInfo.transform_to_vim(value)
 
     def __delitem__(self, variable_name):
         """Deletes the specifiec vim variable.
@@ -283,7 +391,15 @@ class VimVarInfo(object):  # pylint: disable=W0232
         Args:
             variable_name: Name of the variable to delete.
         """
-        del vim.current.buffer.vars[variable_name]
+        del self._getter()[variable_name]
+
+    def __contains__(self, variable_name):
+        """Checks whether the variable is exist or not.
+
+        Args:
+            variable_name: Name of the variable to check.
+        """
+        return variable_name in self._getter()
 
 
 class VimCursorsInfo(object):  # pylint: disable=W0232
@@ -338,7 +454,8 @@ class VimCursorsInfo(object):  # pylint: disable=W0232
         """
         row = bisect.bisect_right(self._text_num_sum, num, lo=rmin)
         col = num - (0 if row == 0 else self._text_num_sum[row - 1])
-        return (row, len(VimInfo.transform_to_vim(VimInfo.lines[row][ : col])))
+        line = VimInfo.lines[row][ : col] if row < len(VimInfo.lines) else ''
+        return (row, len(VimInfo.transform_to_vim(line)))
 
     def nums_to_rcs(self, nums):
         """Transforms list of sorted byte positions.
@@ -448,8 +565,7 @@ class VimHighlightInfo(object):
         Args:
             nicknames: A list of nickname.
         """
-        if self._groups is None:
-            self._groups = [GroupInfo() for _ in range(self.num_of_groups())]
+        self._groups = [GroupInfo() for _ in range(self.num_of_groups())]
         self._username_to_group = {name : self._groups[self._get_group_id(name)]
                                    for name in nicknames}
 
@@ -480,21 +596,29 @@ class VimHighlightInfo(object):
     @staticmethod
     def num_of_groups():
         """Gets the number of groups."""
-        return VimInfo.var.get(VARNAMES.NUM_GROUPS, DEFAULT_NUM_GROUPS)
+        return VimInfo.bvar.get(VARNAMES.NUM_GROUPS, DEFAULT_TIMEOUT)
 
 
 class VimInfoMeta(type):
     """An interface for accessing the vim's vars, buffer, cursors, etc.
 
     Static attributes:
-        var: An instance of VimVarInfo, for accessing the variables in vim.
+        gvar: An instance of VimVarInfo, for accessing the global variables in
+                vim.
+        bvar: An instance of VimVarInfo, for accessing the buffer's variables in
+                vim.
         cursors: An instance of VimCursorsInfo, for accessing the cursor
                 information in vim.
         highlight: An instance of VimHighlightInfo, for accessing the
                  information about highlight in vim.
         ENCODING: vim's encoding.
     """
-    var = VimVarInfo()
+    if 'vars' in dir(vim):
+        gvar = VimVarInfo(vim.vars)
+        bvar = VimVarInfo(getter=lambda : vim.current.buffer.vars)
+    else:
+        gvar = VimVarInfo(SimpleVimVars('g:'))
+        bvar = VimVarInfo(SimpleVimVars('b:'))
     cursors = VimCursorsInfo()
     highlight = VimHighlightInfo()
     ENCODING = vim.options['encoding']
@@ -572,17 +696,17 @@ class VimInfoMeta(type):
             priority: Priority for the vim function matchadd().
             positions: List of row-column position.
         """
-        last_id = VimInfo.var[VARNAMES.PREFIX + group_name]
+        last_id = VimInfo.bvar[VARNAMES.PREFIX + group_name]
         if last_id is not None and last_id > 0:
-            ret = vim.eval('matchdelete(%d)' % int(last_id))
-            del VimInfo.var[VARNAMES.PREFIX + group_name]
+            ret = vim.eval('matchdelete(%d)' % last_id)
+            del VimInfo.bvar[VARNAMES.PREFIX + group_name]
         if positions:
             rcs = [(rc[0] + 1, rc[1] + 1) for rc in positions]
             patterns = '\\|'.join(['\\%%%dl\\%%%dc' % rc for rc in rcs])
             mid = int(vim.eval("matchadd('%s', '%s', %d)" %
                                (group_name, patterns, priority)))
             if mid != -1:
-                VimInfo.var[VARNAMES.PREFIX + group_name] = mid
+                VimInfo.bvar[VARNAMES.PREFIX + group_name] = mid
 
     @staticmethod
     def transform_to_py(data):
@@ -613,7 +737,16 @@ class VimInfoMeta(type):
                      else data.encode(VimInfo.ENCODING))
 
 
-class VimInfo(six.with_metaclass(VimInfoMeta, object)):
+# Copy from https://bitbucket.org/gutworth/six/src/c17477e81e482d34bf3cda043b2eca643084e5fd/six.py
+def with_metaclass(meta, *bases):
+    """Create a base class with a metaclass."""
+    class metaclass(meta):
+        def __new__(cls, name, this_bases, d):
+            return meta(name, bases, d)
+    return type.__new__(metaclass, 'temporary_class', (), {})
+
+
+class VimInfo(with_metaclass(VimInfoMeta, object)):
     """An interface for accessing the vim's vars, buffer, cursors, etc."""
     @staticmethod
     def init():
@@ -635,7 +768,7 @@ class TCPConnection(object):
         """
         self._conn = conn
         self._conn.settimeout(
-            VimInfo.var.get(VARNAMES.TIMEOUT, DEFAULT_TIMEOUT))
+            VimInfo.bvar.get(VARNAMES.TIMEOUT, DEFAULT_NUM_GROUPS))
 
     def send(self, data):
         """Sends the data until timeout or the socket closed.
@@ -682,8 +815,8 @@ class TCPClient(object):
         """Constructor, automatically connects to the server."""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((VimInfo.var[VARNAMES.SERVER_NAME],
-                          VimInfo.var[VARNAMES.SERVER_PORT]))
+            sock.connect((VimInfo.bvar[VARNAMES.SERVER_NAME],
+                          VimInfo.bvar[VARNAMES.SERVER_PORT]))
             self._sock = TCPConnection(sock)
         except TypeError as e:
             raise TCPClientError('Cannot connect to server: %r' % e)
@@ -710,15 +843,15 @@ class TCPClient(object):
         self._sock.close()
 
 
-def get_my_info():
+def get_my_info(init):
     """Gets my information for server.
 
     Return:
         The information for server.
     """
     return {
-        JSON_TOKEN.IDENTITY : VimInfo.var[VARNAMES.IDENTITY],
-        JSON_TOKEN.INIT : VimInfo.var[VARNAMES.INIT],
+        JSON_TOKEN.IDENTITY : VimInfo.bvar[VARNAMES.IDENTITY],
+        JSON_TOKEN.INIT : init,
         JSON_TOKEN.MODE : VimInfo.mode,
         JSON_TOKEN.CURSORS : {
             CURSOR_MARK.CURRENT : VimInfo.cursors[CURSOR_MARK.CURRENT],
@@ -764,7 +897,7 @@ def set_others_info(json_info):
             if last_rc[0] > curr_rc[0] or \
                 (last_rc[0] == curr_rc[0] and last_rc[1] > curr_rc[1]):
                 last_rc, curr_rc = curr_rc, last_rc
-            set_other_visual(VimInfo, name, mode, last_rc, curr_rc)
+            set_other_visual(name, mode, last_rc, curr_rc)
     VimInfo.highlight.render()
 
 def set_other_visual(name, mode, beg, end):
@@ -793,39 +926,74 @@ def set_other_visual(name, mode, beg, end):
                 VimInfo.highlight[name].add_visual((row, col))
 
 
-def sync():
-    """Sync with the server."""
-    conn = TCPClient()
-    response = conn.request(get_my_info())
-    conn.close()
-    if JSON_TOKEN.ERROR in response:
-        raise Exception(response[JSON_TOKEN.ERROR])
-    set_my_info(response)
-    set_others_info(response)
+def connect(server_name, server_port, identity):
+    """Connects to the server.
+
+    Args:
+        server_name: Server name.
+        server_port: Server port.
+        identity: Identity string of this user.
+    """
+    VimInfo.bvar[VARNAMES.SERVER_NAME] = server_name
+    VimInfo.bvar[VARNAMES.SERVER_PORT] = int(server_port)
+    VimInfo.bvar[VARNAMES.IDENTITY] = identity
+    sync(init=True)
+
+
+def sync(init=False):
+    """Sync with the server.
+
+    Args:
+        init: Flag for whether it should tell the server to reset this user or
+                not.
+    """
+    if VARNAMES.SERVER_NAME in VimInfo.bvar:
+        conn = TCPClient()
+        response = conn.request(get_my_info(init))
+        conn.close()
+        if JSON_TOKEN.ERROR in response:
+            raise Exception(response[JSON_TOKEN.ERROR])
+        set_my_info(response)
+        set_others_info(response)
+        VimInfo.bvar[VARNAMES.USERS] = ', '.join(
+            [user[JSON_TOKEN.NICKNAME] for user in response[JSON_TOKEN.OTHERS]])
 
 
 def disconnect():
     """Disconnects with the server."""
     conn = TCPClient()
     conn.request({JSON_TOKEN.BYE : True,
-                  JSON_TOKEN.IDENTITY : VimInfo.var[VARNAMES.IDENTITY]})
+                  JSON_TOKEN.IDENTITY : VimInfo.bvar[VARNAMES.IDENTITY]})
     conn.close()
+    del VimInfo.bvar[VARNAMES.SERVER_NAME]
+    del VimInfo.bvar[VARNAMES.SERVER_PORT]
+    del VimInfo.bvar[VARNAMES.IDENTITY]
     print('bye')
 
 
-def main():
-    VimInfo.init()
-    """Main function."""
-    try:
-        if VimInfo.var[VARNAMES.GOAL] == GOALS.SYNC:
-            sync()
-        elif VimInfo.var[VARNAMES.GOAL] == GOALS.DISCONNECT:
-            disconnect()
-    except TCPClientError as e:
-        print(e)
-    except Exception as e:
-        print('[%r] %r' % (sys.exc_info()[2].tb_lineno, e))
+def show_info():
+    """Shows the informations."""
+    print('Highlight information:')
+    print('Groups of normal cursor position:')
+    for index in range(VimInfo.highlight.num_of_groups()):
+        vim.command('hi %s' % NORMAL_CURSOR_GROUP(index))
+    print('Groups of insert cursor position:')
+    for index in range(VimInfo.highlight.num_of_groups()):
+        vim.command('hi %s' % INSERT_CURSOR_GROUP(index))
+    print('Groups of selection area:')
+    for index in range(VimInfo.highlight.num_of_groups()):
+        vim.command('hi %s' % VISUAL_GROUP(index))
+    print('Users: %r' % VimInfo.bvar[VARNAMES.USERS])
 
-main()
+
+################################## Initialize ##################################
+VimInfo.init()
+
 EOF
 endfunction
+
+"""""""""""""""""""""""""""""""" Initialize """"""""""""""""""""""""""""""""""""
+
+if _SharedVimTryUsePython3(0) || _SharedVimTryUsePython2(0)
+    let g:shared_vim_setupped = 1
+endif

@@ -4,7 +4,7 @@ import threading
 
 from text_chain import TextChain
 
-_UNKNOWN = -1
+UNKNOWN = -1
 
 class AUTHORITY:  # pylint:disable=W0232
     """Enumeration the types of authority."""
@@ -22,7 +22,7 @@ class UserInfo(object):
         cursors: Cursor positions of each mark.
         last_commit_id: Text commit id.
     """
-    def __init__(self, authority=_UNKNOWN, nick_name=''):
+    def __init__(self, authority=UNKNOWN, nick_name=''):
         """Constructor.
 
         Args:
@@ -31,9 +31,9 @@ class UserInfo(object):
         """
         self.authority = authority
         self.nick_name = nick_name
-        self.mode = _UNKNOWN
+        self.mode = UNKNOWN
         self.cursors = {}
-        self.last_commit_id = _UNKNOWN
+        self.last_commit_id = UNKNOWN
 
     def __str__(self):
         return '%s(%r) %r %r' % (
@@ -120,7 +120,7 @@ class UsersTextManager(object):
         """
         with self._rlock:
             without = without if without is not None else []
-            online_check = lambda x: (x != _UNKNOWN if must_online else True)
+            online_check = lambda x: (x != UNKNOWN if must_online else True)
             return dict([pair for pair in self._users.items()
                          if pair[0] not in without and \
                              online_check(pair[1].mode)])

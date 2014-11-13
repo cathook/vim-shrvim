@@ -6,6 +6,7 @@ import threading
 
 from authority_string_transformer import AuthorityStringTransformer
 from authority_string_transformer import AuthorityStringTransformerError
+from users_text_manager import UNKNOWN
 from users_text_manager import UsersTextManagerError
 
 INTRO = ''
@@ -77,16 +78,44 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
         except UsersTextManagerError as e:
             self.write('Fail: %r\n' % e)
 
+    def do_reset(self, text):
+        """Resets a user, [usage] reset <identity>"""
+        try:
+            iden = _split_text(text, 1)[0]
+            if iden not in self._users_text_manager.get_users_info():
+                self.write('Fail: Identity %r not found\n' % iden)
+            else:
+                self._users_text_manager.reset_user(iden)
+                self.write('Done\n')
+        except _SplitTextError:
+            self.write('Format error!\n' +
+                       '[usage] reset <identity>\n')
+        except UsersTextManagerError as e:
+            self.write('Fail: %r\n' % e)
+
     def do_list(self, text):
         """Lists users, [usage] list"""
         try:
             _split_text(text, 0)
             for iden, user in self._users_text_manager.get_users_info().items():
                 self.write('%r => %s' % (iden, user))
-            self.write('Done\n')
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] list\n')
+        except UsersTextManagerError as e:
+            self.write('Fail: %r\n' % e)
+
+    def do_online(self, text):
+        """Lists online users, [usage] online"""
+        try:
+            _split_text(text, 0)
+            for iden, user in self._users_text_manager.get_users_info().items():
+                if user.mode == UNKNOWN:
+                    continue
+                self.write('%r => %s' % (iden, user))
+        except _SplitTextError:
+            self.write('Format error!\n' +
+                       '[usage] online\n')
         except UsersTextManagerError as e:
             self.write('Fail: %r\n' % e)
 
