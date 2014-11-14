@@ -621,7 +621,7 @@ class VimInfoMeta(type):
         bvar = VimVarInfo(SimpleVimVars('b:'))
     cursors = VimCursorsInfo()
     highlight = VimHighlightInfo()
-    ENCODING = vim.options['encoding']
+    ENCODING = vim_options['encoding']
 
     def __init__(self, *args):
         """Constructor."""
