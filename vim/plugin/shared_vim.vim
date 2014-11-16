@@ -2,19 +2,11 @@
 command! -nargs=0 SharedVimTryUsePython3 call _SharedVimTryUsePython3(1)
 command! -nargs=0 SharedVimTryUsePython2 call _SharedVimTryUsePython2(1)
 command! -nargs=+ SharedVimConnect call _SharedVimCallPythonFunc('connect', [<f-args>])
-command! -nargs=0 SharedVimDisconnect call _SharedVimCallPythonFunc('disconnect', [<f-args>])
-command! -nargs=0 SharedVimSync call _SharedVimCallPythonFunc('sync', [<f-args>])
-command! -nargs=0 SharedVimShowInfo call _SharedVimCallPythonFunc('show_info', [<f-args>])
-
-
-"""""""""""""""""""""""""" Global variable for settings """"""""""""""""""""""""
-if !exists('g:shared_vim_timeout')
-    let g:shared_vim_timeout = 5
-endif
-
-if !exists('g:shared_vim_num_groups')
-    let g:shared_vim_num_groups = 5
-endif
+command! -nargs=0 SharedVimDisconnect call _SharedVimCallPythonFunc('disconnect', [])
+command! -nargs=0 SharedVimSync call _SharedVimCallPythonFunc('sync', [])
+command! -nargs=0 SharedVimShowInfo call _SharedVimCallPythonFunc('show_info', [])
+command! -nargs=1 SharedVimSetTimeout call _SharedVimCallPythonFunc('set_bvar', ['TIMEOUT', <f-args>])
+command! -nargs=1 SharedVimSetNumOfGroups call _SharedVimCallPythonFunc('set_bvar', ['NUM_GROUPS', <f-args>])
 
 
 """"""""""""""""""""""""""""""""""""" Setup """"""""""""""""""""""""""""""""""""
@@ -26,13 +18,16 @@ for i in range(0, 100)
 endfor
 
 
+let g:shared_vim_auto_sync_level = 3
+
+
 " Auto commands
-autocmd! CursorMoved * SharedVimSync
-autocmd! CursorMovedI * SharedVimSync
-autocmd! CursorHold * SharedVimSync
-autocmd! CursorHoldI * SharedVimSync
-autocmd! InsertEnter * SharedVimSync
-autocmd! InsertLeave * SharedVimSync
+autocmd! InsertLeave * call _SharedVimAutoSync(1)
+autocmd! CursorMoved * call _SharedVimAutoSync(1)
+autocmd! CursorHold * call _SharedVimAutoSync(1)
+autocmd! InsertEnter * call _SharedVimAutoSync(2)
+autocmd! CursorMovedI * call _SharedVimAutoSync(3)
+autocmd! CursorHoldI * call _SharedVimAutoSync(3)
 
 
 """"""""""""""""""""""""""""""""""" Functions """"""""""""""""""""""""""""""""""
@@ -73,7 +68,16 @@ function! _SharedVimCallPythonFunc(func_name, args)
             exe 'SharedVimPython ' . a:func_name . '(' . args_str . ')'
         endif
     endif
-endfunctio
+endfunction
+
+function! _SharedVimAutoSync(level)
+    if !exists('b:shared_vim_auto_sync_level')
+        let b:shared_vim_auto_sync_level = g:shared_vim_auto_sync_level
+    endif
+    if a:level <= b:shared_vim_auto_sync_level
+        SharedVimSync
+    endif
+endfunction
 
 
 function! _SharedVimSetup()
@@ -86,15 +90,9 @@ import re
 import socket
 import sys
 import vim
-import zlib
 
 if sys.version_info[0] == 3:
     unicode = str
-
-class GOALS:  # pylint:disable=W0232
-    SYNC = 'sync'  # Sync.
-    DISCONNECT = 'disconnect'  # Disconnect.
-    SHOW_INFO = 'show_info'  # Shows the users.
 
 class CURSOR_MARK:  # pylint:disable=W0232
     """Enumeration type of cursor marks."""
@@ -118,15 +116,14 @@ class MODE:  # pylint:disable=W0232
 
 class VARNAMES:  # pylint: disable=W0232
     """Enumeration types of variable name in vim."""
-    PREFIX = 'shared_vim_'  # Shared prefix of the variable names.
-    IDENTITY = PREFIX + 'identity'  # Identity of the user.
-    INIT = PREFIX + 'init'  # Initial or not.
-    NUM_GROUPS = PREFIX + 'num_groups'  # Number of groups.
-    SERVER_NAME = PREFIX + 'server_name'  # Server name.
-    SERVER_PORT = PREFIX + 'port'  # Server port.
-    TIMEOUT = PREFIX + 'timeout'  # Timeout for TCPConnection.
-    USERS = PREFIX + 'users'  # List of users.
-    GOAL = PREFIX + 'goal'  # Goal of this python code.
+    GROUP_NAME_PREFIX = 'gnp'  # Group name's prefix.
+    IDENTITY = 'identity'  # Identity of the user.
+    INIT = 'init'  # Initial or not.
+    NUM_GROUPS = 'num_groups'  # Number of groups.
+    SERVER_NAME = 'server_name'  # Server name.
+    SERVER_PORT = 'port'  # Server port.
+    TIMEOUT = 'timeout'  # Timeout for TCPConnection.
+    USERS = 'users'  # List of users.
 
 # Name of the normal cursor group.
 NORMAL_CURSOR_GROUP = lambda x: 'SharedVimNor%d' % x
@@ -137,8 +134,10 @@ INSERT_CURSOR_GROUP = lambda x: 'SharedVimIns%d' % x
 # Name of the visual group.
 VISUAL_GROUP = lambda x: 'SharedVimVbk%d' % x
 
-DEFAULT_TIMEOUT = 5
+
+DEFAULT_TIMEOUT = 1
 DEFAULT_NUM_GROUPS = 5
+
 
 class JSON_TOKEN:  # pylint:disable=W0232
     """Enumeration the Ttken strings for json object."""
@@ -153,255 +152,89 @@ class JSON_TOKEN:  # pylint:disable=W0232
     TEXT = 'text'  # text content in the buffer
 
 
-if hasattr(vim, 'options'):
-    vim_options = vim.options
-else:
-    class SimpleVimOptions(object):
-        """An alternative implement of vim.options when it is not exists."""
-        def __getitem__(self, option_name):
-            """Gets the specified vim option.
-
-            Args:
-                option_name: Name of the option to get.
-
-            Return:
-                The value in string.
-            """
-            return vim.eval('&' + option_name)
-
-    vim_options = SimpleVimOptions()
-
-
-if not hasattr(vim, 'vars') or not hasattr(vim.current.buffer, 'vars') or True:
-    class SimpleVimVars(object):
-        """An alternative implement of vim.vars/vim.current.buffer.vars.
-
-        Attributes:
-            _prefix: The prefix of the variable name.  For example, "b:" for
-                    buffer's variable, "g:" for global variable.
-        """
-        _STRING_NOTATION = 's'
-        _NUMBER_NOTATION = 'n'
-
-        def __init__(self, prefix):
-            """Constructor.
-
-            Args:
-                prefix: The prefix of the variable name.
-            """
-            self._prefix = prefix
-
-        def __getitem__(self, variable_name):
-            """Gets the specified vim variable.
-
-            Args:
-                variable_name: Name of the variable to get.
-
-            Return:
-                The value.
-            """
-            value = vim.eval(self._prefix + variable_name)
-            if value.startswith(self._STRING_NOTATION):
-                return value[1 : ]
-            else:
-                return int(value[1 : ])
-
-        def __setitem__(self, variable_name, value):
-            """Sets the specifiec vim variable.
-
-            Args:
-                variable_name: Name of the variable to set.
-                value: The new value.
-            """
-            if isinstance(value, bytes):
-                value = self._STRING_NOTATION + value
-            else:
-                value = '%s%d' % (self._NUMBER_NOTATION, value)
-            vim.command('let %s%s = "%s"' %
-                        (self._prefix, variable_name, value))
-
-        def __delitem__(self, variable_name):
-            """Deletes the specifiec vim variable.
-
-            Args:
-                variable_name: Name of the variable to delete.
-           """
-            vim.command('unlet %s%s' % (self._prefix, variable_name))
-
-        def __contains__(self, variable_name):
-            """Checks whether the variable is exist or not.
-
-            Args:
-                variable_name: Name of the variable to check.
-
-            Return:
-                True if the variable exists; otherwise, False.
-            """
-            return vim.eval('exists("%s%s")' %
-                            (self._prefix, variable_name)) == '1'
-
-
-class JSONPackage(object):
-    """Send/receive json by tcp connection.
-
-    Attribute:
-        content: Content of the package body.
-    """
-    ENCODING = 'utf-8'
-    COMPRESS_LEVEL = 2
-    HEADER_LENGTH = 10
-    def __init__(self):
-        """Constructor."""
-        self.content = None
-
-    def send_to(self, fd):
-        """Sends a string to the tcp-connection.
-
-        Args:
-            fd: Socket fd.
-        """
-        string = json.dumps(self.content)
-        body = JSONPackage._create_body_from_string(string)
-        header = JSONPackage._create_header_from_body(body)
-        fd.send(header + body)
-
-    def recv_from(self, fd):
-        """Receives a string from the tcp-connection.
-
-        Args:
-            fd: Socket fd.
-        """
-        header = JSONPackage._recv_header_string(fd)
-        body = JSONPackage._recv_body_string(fd, header)
-        self.content = json.loads(body)
-
-    @staticmethod
-    def _create_body_from_string(string):
-        """Creates package body from data string.
-
-        Args:
-            string: Data string.
-
-        Returns:
-            Package body.
-        """
-        byte_string = string.encode(JSONPackage.ENCODING)
-        return zlib.compress(byte_string, JSONPackage.COMPRESS_LEVEL)
-
-    @staticmethod
-    def _create_header_from_body(body):
-        """Creates package header from package body.
-
-        Args:
-            body: Package body.
-
-        Returns:
-            Package header.
-        """
-        header_string = ('%%0%dd' % JSONPackage.HEADER_LENGTH) % len(body)
-        return header_string.encode(JSONPackage.ENCODING)
-
-    @staticmethod
-    def _recv_header_string(conn):
-        """Receives package header from specified tcp connection.
-
-        Args:
-            conn: The specified tcp connection.
-
-        Returns:
-            Package header.
-        """
-        byte = conn.recv(JSONPackage.HEADER_LENGTH)
-        return byte.decode(JSONPackage.ENCODING)
-
-    @staticmethod
-    def _recv_body_string(conn, header):
-        """Receives package body from specified tcp connection and header.
-
-        Args:
-            conn: The specified tcp connection.
-            header: The package header.
-
-        Returns:
-            Package body.
-        """
-        body_length = int(header)
-        body = conn.recv(body_length)
-        body_byte = zlib.decompress(body)
-        return body_byte.decode(JSONPackage.ENCODING)
-
-
-class VimVarInfo(object):
-    """Gets/sets variables in vim.
+############### Handler for Variable stores only in python #####################
+class ScopeVars(object):
+    """A scoped variables handler.
 
     Attributes:
-        _getter: A function which will return the object for this class to
-                access this variablies.
+        _curr_scope: Current scope number.
+        _vars: A dict contains all scope's variables and the values.
     """
-    def __init__(self, var=None, getter=None):
-        """Constructor.
+    def __init__(self):
+        """Constructor."""
+        self._curr_scope = None
+        self._vars = {}
+
+    @property
+    def curr_scope(self):
+        """Gets the current scope number."""
+        return self._curr_scope
+
+    @curr_scope.setter
+    def curr_scope(self, value):
+        """Sets the current scope number."""
+        self._curr_scope = value
+        self._vars.setdefault(self._curr_scope, {})
+
+    def get(self, variable_name, default=None):
+        """Gets the specified variable.
 
         Args:
-            var: The object for this class to access the vars.
-            getter: If it is not None, it must be a function which will return
-                    the object for this class to access the vars.
+            variable_name: Name of the variable to get.
+            default: The default value to return if the variable is not exist.
+
+        Return:
+            The value.
         """
-        if getter is None:
-            self._getter = lambda : var
-        else:
-            self._getter = getter
+        return self._vars[self._curr_scope].get(variable_name, default)
 
     def __getitem__(self, variable_name):
-        """Gets the specified vim variable.
+        """Gets the specified variable.
 
         Args:
             variable_name: Name of the variable to get.
 
         Return:
-            None if the value is not exists, otherwise the value.
+            The value.
         """
-        return self.get(variable_name)
-
-    def get(self, variable_name, default_value=None):
-        """Gets the specified vim variable.
-
-        Args:
-            variable_name: Name of the variable to get.
-            default_value: The default to return if the variable is not exist.
-
-        Return:
-            default_value if the value is not exists, otherwise the value.
-        """
-        if variable_name not in self._getter():
-            return default_value
-        return VimInfo.transform_to_py(self._getter()[variable_name])
+        return self._vars[self._curr_scope][variable_name]
 
     def __setitem__(self, variable_name, value):
-        """Sets the specifiec vim variable.
+        """Sets the specifiec variable.
 
         Args:
             variable_name: Name of the variable to set.
             value: The new value.
         """
-        self._getter()[variable_name] = VimInfo.transform_to_vim(value)
+        self._vars[self._curr_scope][variable_name] = value
 
     def __delitem__(self, variable_name):
-        """Deletes the specifiec vim variable.
+        """Deletes the specifiec variable.
 
         Args:
             variable_name: Name of the variable to delete.
         """
-        del self._getter()[variable_name]
+        del self._vars[self._curr_scope][variable_name]
 
     def __contains__(self, variable_name):
         """Checks whether the variable is exist or not.
 
         Args:
             variable_name: Name of the variable to check.
+
+        Return:
+            True if the variable exists; otherwise, False.
         """
-        return variable_name in self._getter()
+        return variable_name in self._vars[self._curr_scope]
 
 
+# For scope=buffer
+py_bvars = ScopeVars()
+
+# For scope=window
+py_wvars = ScopeVars()
+
+############################### Interface to vim ###############################
 class VimCursorsInfo(object):  # pylint: disable=W0232
     """Gets/sets the cursor position in vim."""
     def __init__(self, *_):
@@ -596,32 +429,22 @@ class VimHighlightInfo(object):
     @staticmethod
     def num_of_groups():
         """Gets the number of groups."""
-        return VimInfo.bvar.get(VARNAMES.NUM_GROUPS, DEFAULT_TIMEOUT)
+        return py_bvars.get(VARNAMES.NUM_GROUPS, DEFAULT_NUM_GROUPS)
 
 
 class VimInfoMeta(type):
     """An interface for accessing the vim's vars, buffer, cursors, etc.
 
     Static attributes:
-        gvar: An instance of VimVarInfo, for accessing the global variables in
-                vim.
-        bvar: An instance of VimVarInfo, for accessing the buffer's variables in
-                vim.
         cursors: An instance of VimCursorsInfo, for accessing the cursor
                 information in vim.
         highlight: An instance of VimHighlightInfo, for accessing the
                  information about highlight in vim.
         ENCODING: vim's encoding.
     """
-    if 'vars' in dir(vim):
-        gvar = VimVarInfo(vim.vars)
-        bvar = VimVarInfo(getter=lambda : vim.current.buffer.vars)
-    else:
-        gvar = VimVarInfo(SimpleVimVars('g:'))
-        bvar = VimVarInfo(SimpleVimVars('b:'))
     cursors = VimCursorsInfo()
     highlight = VimHighlightInfo()
-    ENCODING = vim_options['encoding']
+    ENCODING = vim.eval('&encoding')
 
     def __init__(self, *args):
         """Constructor."""
@@ -630,14 +453,13 @@ class VimInfoMeta(type):
     @property
     def lines(self):  # pylint: disable=R0201
         """Gets list of lines in the buffer."""
-        return [VimInfo.transform_to_py(line)
-                for line in vim.current.buffer[:]]
+        return [VimInfo.transform_to_py(line) for line in vim.current.buffer[:]]
 
     @lines.setter
     def lines(self, lines):  # pylint: disable=R0201
         """Sets the buffer by list of lines."""
-        vim.current.buffer[0 : len(vim.current.buffer)] = \
-            [VimInfo.transform_to_vim(line) for line in lines]
+        tr = [VimInfo.transform_to_vim(line) for line in lines]
+        vim.current.buffer[0 : len(vim.current.buffer)] = tr
 
     @property
     def text(self):
@@ -696,17 +518,17 @@ class VimInfoMeta(type):
             priority: Priority for the vim function matchadd().
             positions: List of row-column position.
         """
-        last_id = VimInfo.bvar[VARNAMES.PREFIX + group_name]
+        last_id = py_wvars.get(VARNAMES.GROUP_NAME_PREFIX + group_name, None)
         if last_id is not None and last_id > 0:
-            ret = vim.eval('matchdelete(%d)' % last_id)
-            del VimInfo.bvar[VARNAMES.PREFIX + group_name]
+            vim.eval('matchdelete(%d)' % last_id)
+            del py_wvars[VARNAMES.GROUP_NAME_PREFIX + group_name]
         if positions:
             rcs = [(rc[0] + 1, rc[1] + 1) for rc in positions]
             patterns = '\\|'.join(['\\%%%dl\\%%%dc' % rc for rc in rcs])
             mid = int(vim.eval("matchadd('%s', '%s', %d)" %
                                (group_name, patterns, priority)))
             if mid != -1:
-                VimInfo.bvar[VARNAMES.PREFIX + group_name] = mid
+                py_wvars[VARNAMES.GROUP_NAME_PREFIX + group_name] = mid
 
     @staticmethod
     def transform_to_py(data):
@@ -740,18 +562,92 @@ class VimInfoMeta(type):
 # Copy from https://bitbucket.org/gutworth/six/src/c17477e81e482d34bf3cda043b2eca643084e5fd/six.py
 def with_metaclass(meta, *bases):
     """Create a base class with a metaclass."""
-    class metaclass(meta):
+    class metaclass(meta):  # pylint: disable=W0232
         def __new__(cls, name, this_bases, d):
             return meta(name, bases, d)
     return type.__new__(metaclass, 'temporary_class', (), {})
 
 
-class VimInfo(with_metaclass(VimInfoMeta, object)):
+class VimInfo(with_metaclass(VimInfoMeta, object)):  # pylint: disable=W0232
     """An interface for accessing the vim's vars, buffer, cursors, etc."""
     @staticmethod
     def init():
         """Initializes some settings."""
         VimInfo.cursors.update_text_lines()
+
+
+########################### About connection to server #########################
+class JSONPackageError(Exception):
+    """Error raised by JSONPackage."""
+    pass
+
+class JSONPackage(object):
+    """Send/receive json object by gived function.
+
+    Attributes:
+        content: Content of the package body.
+
+    Static attributes:
+        _ENCODING: Encoding of the package.
+        _HEADER_LENGTH: Length of the header.
+    """
+    _ENCODING = 'utf-8'
+    _HEADER_LENGTH = 10
+    def __init__(self, content=None, recv_func=None):
+        """Constructor.
+
+        If the receive_func is not None, it will grap the default content by
+        calling that function instead of by the argument "content".
+
+        The detail of arguments/return values format see the method "recv_from".
+
+        Args:
+            content: The default content of this package.
+            recv_func: A function for receive the default content.
+        """
+        self.content = content
+        if recv_func is not None:
+            self.recv(recv_func)
+
+    def send(self, send_func):
+        """Sends by calling the gived sending function.
+
+        Args:
+            send_func: A function which will send the whole data gived.
+                Function format:
+                    send_func(bytes_data): None
+        """
+        try:
+            body = json.dumps(self.content)
+            header_str = ('%%0%dd' % JSONPackage._HEADER_LENGTH) % len(body)
+            send_func(header_str + body)
+        except TypeError as e:
+            raise JSONPackageError('json: %s' % str(e))
+        except UnicodeError as e:
+            raise JSONPackageError('Cannot encode the string: %s.' % str(e))
+
+    def recv(self, recv_func):
+        """Receives a json object from a gived function.
+
+        It will calls the give function like this:
+            recv_func(<num_of_bytes>) => bytes with length <num_of_bytes>
+
+        Args:
+            recv_func: A function to be called to get the serialize data.
+        """
+        try:
+            header_str = unicode(recv_func(JSONPackage._HEADER_LENGTH),
+                                 JSONPackage._ENCODING)
+            body_str = unicode(recv_func(int(header_str)),
+                               JSONPackage._ENCODING)
+        except UnicodeError as e:
+            raise JSONPackageError('Cannot decode the bytes: %r.' % e)
+        except ValueError as e:
+            raise JSONPackageError('Cannot get the body length %r' % e)
+        try:
+            self.content = json.loads(body_str)
+        except ValueError as e:
+            raise JSONPackageError('Cannot loads to the json object: %r' % e)
 
 
 class TCPConnection(object):
@@ -767,10 +663,9 @@ class TCPConnection(object):
             conn: TCP-connection.
         """
         self._conn = conn
-        self._conn.settimeout(
-            VimInfo.bvar.get(VARNAMES.TIMEOUT, DEFAULT_NUM_GROUPS))
+        self._conn.settimeout(py_bvars.get(VARNAMES.TIMEOUT, DEFAULT_TIMEOUT))
 
-    def send(self, data):
+    def send_all(self, data):
         """Sends the data until timeout or the socket closed.
 
         Args:
@@ -778,7 +673,7 @@ class TCPConnection(object):
         """
         self._conn.sendall(data)
 
-    def recv(self, nbyte):
+    def recv_all(self, nbyte):
         """Receives the data until timeout or the socket closed.
 
         Args:
@@ -809,19 +704,30 @@ class TCPClient(object):
     """TCP client.
 
     Attributes:
-        _sock: Connection.
+        _conn: Connection.
+
+    Static attributes:
+        _conns: A dict stores connections.
     """
-    def __init__(self):
-        """Constructor, automatically connects to the server."""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((VimInfo.bvar[VARNAMES.SERVER_NAME],
-                          VimInfo.bvar[VARNAMES.SERVER_PORT]))
-            self._sock = TCPConnection(sock)
-        except TypeError as e:
-            raise TCPClientError('Cannot connect to server: %r' % e)
-        except socket.error as e:
-            raise TCPClientError('Cannot connect to server: %r' % e)
+    _conns = {}
+    def __init__(self, server_name, port_name):
+        """Constructor, automatically connects to the server.
+
+        Args:
+            server_name: Server name.
+            port_name: Port name.
+        """
+        key = (server_name, port_name)
+        if key not in TCPClient._conns:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((server_name, port_name))
+                TCPClient._conns[key] = TCPConnection(sock)
+            except TypeError as e:
+                raise TCPClientError('Cannot connect to server: %s' % str(e))
+            except socket.error as e:
+                raise TCPClientError('Cannot connect to server: %s' % str(e))
+        self._conn = TCPClient._conns[key]
 
     def request(self, req):
         """Sends a request to server and get the response.
@@ -832,16 +738,27 @@ class TCPClient(object):
         Return:
             The response.
         """
-        pkg = JSONPackage()
-        pkg.content = req
-        pkg.send_to(self._sock)
-        pkg.recv_from(self._sock)
-        return pkg.content
+        try:
+            JSONPackage(req).send(self._conn.send_all)
+            return JSONPackage(recv_func=self._conn.recv_all).content
+        except socket.error as e:
+            raise TCPClientError(e)
+        except JSONPackageError as e:
+            raise TCPClientError(e)
 
     def close(self):
         """Closes the socket."""
-        self._sock.close()
+        self._conn.close()
+        for key, conn in TCPClient._conns.items():
+            if conn is self._conn:
+                del TCPClient._conns[key]
+                break
 
+
+################################ Some operations ###############################
+def set_scopes():
+    py_bvars.curr_scope = vim.current.buffer.number
+    py_wvars.curr_scope = vim.current.window.number
 
 def get_my_info(init):
     """Gets my information for server.
@@ -849,16 +766,14 @@ def get_my_info(init):
     Return:
         The information for server.
     """
-    return {
-        JSON_TOKEN.IDENTITY : VimInfo.bvar[VARNAMES.IDENTITY],
-        JSON_TOKEN.INIT : init,
-        JSON_TOKEN.MODE : VimInfo.mode,
-        JSON_TOKEN.CURSORS : {
-            CURSOR_MARK.CURRENT : VimInfo.cursors[CURSOR_MARK.CURRENT],
-            CURSOR_MARK.V : VimInfo.cursors[CURSOR_MARK.V],
-        },
-        JSON_TOKEN.TEXT : VimInfo.text,
-    }
+    return {JSON_TOKEN.IDENTITY : py_bvars[VARNAMES.IDENTITY],
+            JSON_TOKEN.INIT : init,
+            JSON_TOKEN.MODE : VimInfo.mode,
+            JSON_TOKEN.CURSORS : {
+                CURSOR_MARK.CURRENT : VimInfo.cursors[CURSOR_MARK.CURRENT],
+                CURSOR_MARK.V : VimInfo.cursors[CURSOR_MARK.V],
+            },
+            JSON_TOKEN.TEXT : VimInfo.text}
 
 
 def set_my_info(json_info):
@@ -926,6 +841,7 @@ def set_other_visual(name, mode, beg, end):
                 VimInfo.highlight[name].add_visual((row, col))
 
 
+############################## Supported operations ############################
 def connect(server_name, server_port, identity):
     """Connects to the server.
 
@@ -934,9 +850,10 @@ def connect(server_name, server_port, identity):
         server_port: Server port.
         identity: Identity string of this user.
     """
-    VimInfo.bvar[VARNAMES.SERVER_NAME] = server_name
-    VimInfo.bvar[VARNAMES.SERVER_PORT] = int(server_port)
-    VimInfo.bvar[VARNAMES.IDENTITY] = identity
+    set_scopes()
+    py_bvars[VARNAMES.SERVER_NAME] = server_name
+    py_bvars[VARNAMES.SERVER_PORT] = int(server_port)
+    py_bvars[VARNAMES.IDENTITY] = identity
     sync(init=True)
 
 
@@ -947,32 +864,48 @@ def sync(init=False):
         init: Flag for whether it should tell the server to reset this user or
                 not.
     """
-    if VARNAMES.SERVER_NAME in VimInfo.bvar:
-        conn = TCPClient()
-        response = conn.request(get_my_info(init))
-        conn.close()
+    set_scopes()
+    if VARNAMES.SERVER_NAME in py_bvars:
+        try:
+            conn = TCPClient(py_bvars[VARNAMES.SERVER_NAME],
+                             py_bvars[VARNAMES.SERVER_PORT])
+            response = conn.request(get_my_info(init))
+        except TCPClientError as e:
+            print(str(e))
+            return
         if JSON_TOKEN.ERROR in response:
-            raise Exception(response[JSON_TOKEN.ERROR])
+            print(response[JSON_TOKEN.ERROR])
+            return
         set_my_info(response)
         set_others_info(response)
-        VimInfo.bvar[VARNAMES.USERS] = ', '.join(
+        py_bvars[VARNAMES.USERS] = ', '.join(
             [user[JSON_TOKEN.NICKNAME] for user in response[JSON_TOKEN.OTHERS]])
 
 
 def disconnect():
     """Disconnects with the server."""
-    conn = TCPClient()
-    conn.request({JSON_TOKEN.BYE : True,
-                  JSON_TOKEN.IDENTITY : VimInfo.bvar[VARNAMES.IDENTITY]})
-    conn.close()
-    del VimInfo.bvar[VARNAMES.SERVER_NAME]
-    del VimInfo.bvar[VARNAMES.SERVER_PORT]
-    del VimInfo.bvar[VARNAMES.IDENTITY]
-    print('bye')
+    set_scopes()
+    if VARNAMES.SERVER_NAME in py_bvars:
+        VimInfo.highlight.reset([])
+        VimInfo.highlight.render()
+        try:
+            conn = TCPClient(py_bvars[VARNAMES.SERVER_NAME],
+                             py_bvars[VARNAMES.SERVER_PORT])
+            conn.request({
+                JSON_TOKEN.BYE : True,
+                JSON_TOKEN.IDENTITY : py_bvars[VARNAMES.IDENTITY]})
+        except TCPClientError as e:
+            print(str(e))
+        conn.close()
+        del py_bvars[VARNAMES.SERVER_NAME]
+        del py_bvars[VARNAMES.SERVER_PORT]
+        del py_bvars[VARNAMES.IDENTITY]
+        print('bye')
 
 
 def show_info():
     """Shows the informations."""
+    set_scopes()
     print('Highlight information:')
     print('Groups of normal cursor position:')
     for index in range(VimInfo.highlight.num_of_groups()):
@@ -983,7 +916,19 @@ def show_info():
     print('Groups of selection area:')
     for index in range(VimInfo.highlight.num_of_groups()):
         vim.command('hi %s' % VISUAL_GROUP(index))
-    print('Users: %r' % VimInfo.bvar[VARNAMES.USERS])
+    print('Users: %r' % py_bvars[VARNAMES.USERS])
+
+
+def set_bvar(variable_name, value):
+    """Sets the variable of the current buffer.
+
+    Args:
+        variable_name: Variable name.
+        value: Value.
+    """
+    set_scopes()
+    py_bvars[getattr(VARNAMES, variable_name)] = value
+    print('bvars[%s] = %s' % (getattr(VARNAMES, variable_name), value))
 
 
 ################################## Initialize ##################################

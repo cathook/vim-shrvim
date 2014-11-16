@@ -47,13 +47,11 @@ class TextChain(object):
         old_index = self._get_commit_index(orig_id)
         commit = _TextCommit(self._commits[old_index][1].text, new_text)
         cursors_info = [commit.get_cursor_info(cur) for cur in cursors]
-        commit.apply_commits(
-            [cmt[1] for cmt in self._commits[old_index + 1 : ]])
+        commit.apply_commits([cm[1] for cm in self._commits[old_index + 1 :]])
         self._last_commit = commit.copy()
         new_id = self._commits[-1][0] + 1
         for info in cursors_info:
-            info.apply_commits([cmt[1]
-                                for cmt in self._commits[old_index + 1 : ]])
+            info.apply_commits([cm[1] for cm in self._commits[old_index + 1 :]])
         new_cursors = [cursor_info.position for cursor_info in cursors_info]
         self._commits.append((new_id, commit))
         self.delete(orig_id)
@@ -217,89 +215,6 @@ class _TextCommit(object):
                 self._opers = _opers_apply_opers(self._opers, commit._opers)
             self._rebase_text(commits[-1].text)
 
-#    def squash_before(self, commit):
-#        """Squash a commit in to myself which is commited just before me.
-#
-#        Args:
-#            commit: The commit to be squash.
-#        """
-#        chg_chars, beg_end_pos = commit._create_chg_info()
-#        orig_len = len(commit.text) - commit.increased_length
-#        offset = 0
-#        # Adds another entry to beg_end_pos to prevent the key out of range
-#        beg_end_pos_addend = beg_end_pos + [(orig_len, orig_len + 1)]
-#        for oper in self._opers:  # Applies my operations on the chg info.
-#            beg = beg_end_pos_addend[oper.begin + offset][0]
-#            end = beg_end_pos_addend[oper.end + offset][0]
-#            length = len(oper.new_text)
-#            chg_chars[oper.begin : oper.end] = list(oper.new_text)
-#            beg_end_pos[oper.begin : oper.end] = [(beg, end)] * length
-#            offset += oper.increased_length
-#        self._recreate_opers_from_chg_info(orig_len, chg_chars, beg_end_pos)
-#
-#    def _create_chg_info(self):
-#        """Creates a list contains change informations.
-#
-#        Return:
-#            A 2-tuple for two list:
-#                first list: List of changed char in the final text,
-#                        if that position does not change, it will be False.
-#                second list: List of 2-tuple with:
-#                    first element: The begin position of the original text.
-#                    first element: The end position of the original text.
-#        """
-#        chg_chars, beg_end_pos = [], []
-#        orig_end, orig_len = 0, len(self._text) - self.increased_length
-#        for oper in self._opers + [_ChgTextOper(orig_len, orig_len, '')]:
-#            chg_chars += [False] * (oper.begin - orig_end)
-#            beg_end_pos += [(k, k + 1) for k in range(orig_end, oper.begin)]
-#            chg_chars += list(oper.new_text)
-#            beg_end_pos += [(oper.begin, oper.end)] * len(oper.new_text)
-#            orig_end = oper.end
-#        return chg_chars, beg_end_pos
-#
-#    def _recreate_opers_from_chg_info(self, orig_len, chg_chars, beg_end_pos):
-#        """Creates my operations by gived change information.
-#
-#        Args:
-#            chg_chars: ...
-#            beg_end_pos: ...
-#        """
-#        self._opers = []
-#        chg_chars = [False] + chg_chars + [False]
-#        beg_end_pos = [(-1, 0)] + beg_end_pos + [(orig_len, orig_len + 1)]
-#        index = 0
-#        while index < len(chg_chars) - 1:
-#            if chg_chars[index] is not False:
-#                index_end = chg_chars.index(False, index) - 1
-#                self._opers.append(_ChgTextOper(
-#                    beg_end_pos[index][0], beg_end_pos[index_end][1],
-#                    ''.join(chg_chars[index : index_end + 1])))
-#                index = index_end
-#            if beg_end_pos[index][1] < beg_end_pos[index + 1][0]:
-#                self._opers.append(_ChgTextOper(
-#                    beg_end_pos[index][1], beg_end_pos[index + 1][0], ''))
-#            index += 1
-#        self._merge_connected_opers()
-#
-#    def _merge_connected_opers(self):
-#        """Merges the operations who are connected with each other.
-#
-#        ex:
-#                [      )
-#                       [    )
-#            will become:
-#                [           )
-#        """
-#        ind = 0
-#        while ind < len(self._opers) - 1:
-#            if self._opers[ind].end == self._opers[ind].begin:
-#                self._opers[ind : ind + 1] = [_ChgTextOper(
-#                    self._opers[ind].begin, self._opers[ind + 1].end,
-#                    self._opers[ind].new_text + self._opers[ind + 1].new_text)]
-#            else:
-#                ind += 1
-#
     def get_cursor_info(self, cursor_pos):
         """Gets the cursor information by gived cursor position.
 

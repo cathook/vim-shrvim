@@ -1,42 +1,44 @@
-"""AuthroityStringTransformer."""
+"""For transformating the type of authroity."""
 
 from users_text_manager import AUTHORITY
 
 
-class AuthorityStringTransformerError(Exception):
+_mappings = [
+    (AUTHORITY.READONLY, 'RO'),
+    (AUTHORITY.READWRITE, 'RW'),
+]
+
+
+class Error(Exception):
     """Error raised by AuthorityStringTransformer."""
     pass
 
-class AuthorityStringTransformer:  # pylint:disable=W0232
-    """Transforms authority between number and strin format."""
-    @staticmethod
-    def to_string(authority):
-        """Transform number authority value to string value.
 
-        Args:
-            authority: Authority in number format.
+def to_string(authority):
+    """Transform number authority value to string value.
 
-        Returns:
-            authority: Corrosponding authority in string format.
-        """
-        if authority == AUTHORITY.READONLY:
-            return 'RO'
-        elif authority == AUTHORITY.READWRITE:
-            return 'RW'
-        raise AuthorityStringTransformerError('Invalid number.')
+    Args:
+        authority: Authority in number format.
 
-    @staticmethod
-    def to_number(string):
-        """Transform string authority value to number value.
+    Return:
+        Corrosponding authority in string format.
+    """
+    for item in _mappings:
+        if item[0] == authority:
+            return item[1]
+    raise Error('Invalid number.')
 
-        Args:
-            authority: Authority in string format.
 
-        Returns:
-            authority: Corrosponding authority in number format.
-        """
-        if string == 'RO':
-            return AUTHORITY.READONLY
-        elif string == 'RW':
-            return AUTHORITY.READWRITE
-        raise AuthorityStringTransformerError('Invalid string.')
+def to_number(string):
+    """Transform string authority value to number value.
+
+    Args:
+        authority: Authority in string format.
+
+    Return:
+        Corrosponding authority in number format.
+    """
+    for item in _mappings:
+        if item[1] == string:
+            return item[0]
+    raise Error('Invalid string.')

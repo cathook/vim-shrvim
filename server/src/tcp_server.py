@@ -8,26 +8,11 @@ import time
 
 from json_package import JSONPackage
 from json_package import JSONPackageError
-from users_text_manager import AUTHORITY
-from users_text_manager import UserInfo
+from request_handler import RequestHandler
 
 
 FREQUENCY = 8
-
-TIMEOUT = 5
-
-
-class _JSON_TOKEN:  # pylint:disable=W0232
-    """Enumeration the Ttken strings for json object."""
-    BYE = 'bye'  # Resets the user and do nothong.
-    CURSORS = 'cursors'  # other users' cursor position
-    ERROR = 'error'  # error string
-    IDENTITY = 'identity'  # identity of myself
-    INIT = 'init'  # initialize connect flag
-    MODE = 'mode'  # vim mode.
-    NICKNAME = 'nickname'  # nick name of the user.
-    OTHERS = 'others'  # other users info.
-    TEXT = 'text'  # text content in the buffer
+TIMEOUT = 1
 
 
 class TCPServer(threading.Thread):
@@ -68,6 +53,7 @@ class TCPServer(threading.Thread):
         """Stops the thread."""
         self._stop_flag = True
         for thr in self._connection_handler_threads:
+            thr.stop()
             thr.join()
 
     def _build(self):
@@ -103,11 +89,53 @@ class TCPServer(threading.Thread):
                 self._connection_handler_threads += [thr]
 
 
+class _TCPConnectionHandler(threading.Thread):
+    """A thread to handle a connection.
+
+    Attributes:
+        _sock:  The connection socket.
+        _users_text_manager: An instance of UsersTextManager.
+        _stop_flag: Stopping flag.
+    """
+    def __init__(self, conn, users_text_manager):
+        """Constructor.
+
+        Args:
+            conn: The connection.
+            users_text_manager: An instance of UsersTextManager.
+        """
+        super(_TCPConnectionHandler, self).__init__()
+        self._conn = TCPConnection(conn)
+        self._users_text_manager = users_text_manager
+        self._stop_flag = False
+        self._request_handler = RequestHandler(self._users_text_manager)
+
+    def run(self):
+        """Runs the thread."""
+        try:
+            while not self._stop_flag:
+                try:
+                    request = JSONPackage(recv_func=self._conn.recv_all).content
+                    response = self._request_handler.handle(request)
+                    JSONPackage(response).send(self._conn.send_all)
+                except JSONPackageError as e:
+                    log.error(str(e))
+        except socket.error as e:
+            log.error(str(e))
+        self._conn.close()
+
+    def stop(self):
+        """Stops the thread."""
+        self._stop_flag = True
+        self._conn.stop()
+
+
 class TCPConnection(object):
     """My custom tcp connection.
 
     Args:
         _conn: The TCP-connection.
+        _stop_flag: Stopping flag.
     """
     def __init__(self, conn):
         """Constructor.
@@ -117,16 +145,22 @@ class TCPConnection(object):
         """
         self._conn = conn
         self._conn.settimeout(TIMEOUT)
+        self._stop_flag = False
 
-    def send(self, data):
+    def send_all(self, data):
         """Sends the data until timeout or the socket closed.
 
         Args:
             data: Data to be sent.
         """
-        self._conn.sendall(data)
+        recvd_byte, total_byte = 0, len(data)
+        while recvd_byte < total_byte and not self._stop_flag:
+            try:
+                recvd_byte += self._conn.send(data[recvd_byte : ])
+            except socket.timeout:
+                continue
 
-    def recv(self, nbyte):
+    def recv_all(self, nbyte):
         """Receives the data until timeout or the socket closed.
 
         Args:
@@ -136,8 +170,11 @@ class TCPConnection(object):
             Bytes of data.
         """
         ret = b''
-        while nbyte > 0:
-            recv = self._conn.recv(nbyte)
+        while nbyte > 0 and not self._stop_flag:
+            try:
+                recv = self._conn.recv(nbyte)
+            except socket.timeout:
+                continue
             if not recv:
                 raise socket.error('Connection die.')
             ret += recv
@@ -148,110 +185,6 @@ class TCPConnection(object):
         """Closes the connection."""
         self._conn.close()
 
-
-class _TCPConnectionHandler(threading.Thread):
-    """A thread to handle a connection.
-
-    Attributes:
-        _sock:  The connection socket.
-        _users_text_manager: An instance of UsersTextManager.
-    """
-    def __init__(self, sock, users_text_manager):
-        """Constructor.
-
-        Args:
-            sock: The connection socket.
-            users_text_manager: An instance of UsersTextManager.
-        """
-        super(_TCPConnectionHandler, self).__init__()
-        self._sock = TCPConnection(sock)
-        self._users_text_manager = users_text_manager
-
-    def run(self):
-        """Runs the thread."""
-        try:
-            json_package = self._receive()
-            json_info = self._sanitize(json_package.content)
-            if json_info:
-                self._handle(json_info)
-            else:
-                self._send({_JSON_TOKEN.ERROR : 'Invalid client.'})
-        except JSONPackageError as e:
-            log.error(str(e))
-        except socket.error as e:
-            log.error(str(e))
-        self._sock.close()
-
-    def _sanitize(self, request):
-        """Sanitizes the request.
-
-        Args:
-            request: The request package.
-
-        Return:
-            Sanitized package.
-        """
-        identity = request[_JSON_TOKEN.IDENTITY]
-        if identity not in self._users_text_manager.get_users_info():
-            return None
-        if request.get(_JSON_TOKEN.INIT) or request.get(_JSON_TOKEN.BYE, False):
-            self._users_text_manager.reset_user(identity)
-            request[_JSON_TOKEN.TEXT] = ''
-            for mark in request.get(_JSON_TOKEN.CURSORS, []):
-                request[_JSON_TOKEN.CURSORS][mark] = 0
-            if _JSON_TOKEN.BYE in request:
-                return None
-        else:
-            auth = self._users_text_manager.get_users_info()[identity].authority
-            if auth < AUTHORITY.READWRITE:
-                old_text = self._users_text_manager.get_user_text(identity)
-                request[_JSON_TOKEN.TEXT] = old_text
-        return request
-
-    def _handle(self, request):
-        """Handles the request.
-
-        Args:
-            request: The request package.
-        """
-        identity = request[_JSON_TOKEN.IDENTITY]
-        text = request[_JSON_TOKEN.TEXT]
-        user_info = UserInfo()
-        user_info.mode = request[_JSON_TOKEN.MODE]
-        user_info.cursors = request[_JSON_TOKEN.CURSORS]
-        new_user_info, new_text = self._users_text_manager.update_user_text(
-            identity, user_info, text)
-        response = JSONPackage()
-        response.content = {
-            _JSON_TOKEN.TEXT : new_text,
-            _JSON_TOKEN.CURSORS : new_user_info.cursors,
-            _JSON_TOKEN.MODE : new_user_info.mode,
-            _JSON_TOKEN.OTHERS : [
-                {_JSON_TOKEN.NICKNAME : other.nick_name,
-                 _JSON_TOKEN.MODE : other.mode,
-                 _JSON_TOKEN.CURSORS: other.cursors}
-                for iden, other in self._users_text_manager.get_users_info(
-                    without=[identity], must_online=True).items()]
-        }
-        response.send_to(self._sock)
-
-
-    def _receive(self):
-        """Receive a request.
-
-        Return:
-            The request package.
-        """
-        request = JSONPackage()
-        request.recv_from(self._sock)
-        return request
-
-    def _send(self, pkg):
-        """Sends a response.
-
-        Args:
-            pkg: The package to be sent.
-        """
-        response = JSONPackage()
-        response.content = pkg
-        response.send_to(self._sock)
+    def stop(self):
+        """Stops."""
+        self._stop_flag = True

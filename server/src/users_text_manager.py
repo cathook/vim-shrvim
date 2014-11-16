@@ -4,6 +4,7 @@ import threading
 
 from text_chain import TextChain
 
+
 UNKNOWN = -1
 
 class AUTHORITY:  # pylint:disable=W0232
@@ -13,16 +14,17 @@ class AUTHORITY:  # pylint:disable=W0232
 
 
 class UserInfo(object):
-    """A pure structor for represent a user's information.
+    """A structure for storing a user's information.
 
     Attributes:
         authority: Authority of this user.
         nick_name: Nick name.
         mode: Vim mode.
-        cursors: Cursor positions of each mark.
-        last_commit_id: Text commit id.
+        cursors: A dict stores cursor positions of each mark.
+        last_commit_id: Last commit's id.
     """
-    def __init__(self, authority=UNKNOWN, nick_name=''):
+    def __init__(self, authority=UNKNOWN, nick_name='', mode=UNKNOWN,
+                 cursors=None):
         """Constructor.
 
         Args:
@@ -31,18 +33,14 @@ class UserInfo(object):
         """
         self.authority = authority
         self.nick_name = nick_name
-        self.mode = UNKNOWN
-        self.cursors = {}
+        self.mode = mode
+        self.cursors = {} if cursors is None else cursors
         self.last_commit_id = UNKNOWN
 
     def __str__(self):
-        return '%s(%r) %r %r' % (
-            self.nick_name, self.authority, self.mode, self.last_commit_id)
+        return 'authorith = %r, nickname = %r, mode = %r, last_commit = %r' % (
+            self.authority, self.nick_name, self.mode, self.last_commit_id)
 
-
-class UsersTextManagerError(Exception):
-    """Error raised by UsersTextManager."""
-    pass
 
 class UsersTextManager(object):
     """Handles query/operations about users and texts.
@@ -77,12 +75,8 @@ class UsersTextManager(object):
             authority: Authority of this user.
         """
         with self._rlock:
-            if identity in self._users:
-                raise UsersTextManagerError('User %r already exists.' %
-                                            identity)
-            new_user = UserInfo(authority, nick_name)
-            new_user.last_commit_id = self._text_chain.new()
-            self._users[identity] = new_user
+            self._users[identity] = UserInfo(authority, nick_name)
+            self._users[identity].last_commit_id = self._text_chain.new()
 
     def delete_user(self, identity):
         """Deletes a user.
@@ -91,8 +85,6 @@ class UsersTextManager(object):
             identity: Identity of this user.
         """
         with self._rlock:
-            if identity not in self._users:
-                raise UsersTextManagerError('User %r not exists.' % identity)
             self._text_chain.delete(self._users[identity].last_commit_id)
             del self._users[identity]
 
@@ -136,23 +128,20 @@ class UsersTextManager(object):
             A 2-tuple for a instance of UserInfo and a string.
         """
         with self._rlock:
-            curlist = list(new_user_info.cursors.items())
-            new_commit_id, new_text, new_cursors = self._text_chain.commit(
-                self._users[identity].last_commit_id, new_text,
-                [pos for mark, pos in curlist])
-            curlist = [(curlist[i][0], new_cursors[i])
-                       for i in range(len(curlist))]
+            curmarks = new_user_info.cursors.keys()
+            curs = [new_user_info.cursors[mark] for mark in curmarks]
+            new_commit_id, new_text, new_curs = self._text_chain.commit(
+                self._users[identity].last_commit_id, new_text, curs)
             self._users[identity].last_commit_id = new_commit_id
             self._users[identity].mode = new_user_info.mode
-            self._users[identity].cursors = dict(curlist)
+            self._users[identity].cursors = _lists_to_dict(curmarks, new_curs)
             for iden, user in self._users.items():
                 if iden == identity:
                     continue
-                curs_info = list(user.cursors.items())
-                new_curs = self._text_chain.update_cursors(
-                    [pos for mark, pos in curs_info])
-                user.cursors = dict([(curs_info[i][0], new_curs[i])
-                                     for i in range(len(new_curs))])
+                curmarks = user.cursors.keys()
+                curs = [user.cursors[mark] for mark in curmarks]
+                new_curs = self._text_chain.update_cursors(curs)
+                user.cursors = _lists_to_dict(curmarks, new_curs)
             return (self._users[identity], new_text)
 
     def get_user_text(self, identity):
@@ -165,5 +154,19 @@ class UsersTextManager(object):
             The text.
         """
         with self._rlock:
-            return self._text_chain.get_text(self._users[identity].
-                                             last_commit_id)
+            return self._text_chain.get_text(
+                self._users[identity].last_commit_id)
+
+
+def _lists_to_dict(list1, list2):
+    """Combines each element in two lists.
+
+    Args:
+        list1: The first list.
+        list2: The second list.
+
+    Return:
+        A list with each element be a tuple of two element in list1 and list2.
+    """
+    l1, l2 = list(list1), list(list2)
+    return {l1[index] : l2[index] for index in range(len(l1))}

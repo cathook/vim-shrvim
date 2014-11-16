@@ -1,7 +1,6 @@
-"""Contains tcp package object."""
+"""JSONPackage"""
 
 import json
-import zlib
 
 
 class JSONPackageError(Exception):
@@ -9,106 +8,68 @@ class JSONPackageError(Exception):
     pass
 
 class JSONPackage(object):
-    """Send/receive json by tcp connection.
+    """Send/receive json object by gived function.
 
-    Attribute:
+    Attributes:
         content: Content of the package body.
-    """
-    ENCODING = 'utf-8'
-    COMPRESS_LEVEL = 2
-    HEADER_LENGTH = 10
-    def __init__(self):
-        """Constructor."""
-        self.content = None
 
-    def send_to(self, fd):
-        """Sends a string to the tcp-connection.
+    Static attributes:
+        _ENCODING: Encoding of the package.
+        _HEADER_LENGTH: Length of the header.
+    """
+    _ENCODING = 'utf-8'
+    _HEADER_LENGTH = 10
+    def __init__(self, content=None, recv_func=None):
+        """Constructor.
+
+        If the receive_func is not None, it will grap the default content by
+        calling that function instead of by the argument "content".
+
+        The detail of arguments/return values format see the method "recv_from".
 
         Args:
-            fd: Socket fd.
+            content: The default content of this package.
+            recv_func: A function for receive the default content.
+        """
+        self.content = content
+        if recv_func is not None:
+            self.recv(recv_func)
+
+    def send(self, send_func):
+        """Sends by calling the gived sending function.
+
+        Args:
+            send_func: A function which will send the whole data gived.
+                Function format:
+                    send_func(bytes_data): None
         """
         try:
-            string = json.dumps(self.content)
-            body = JSONPackage._create_body_from_string(string)
-            header = JSONPackage._create_header_from_body(body)
-            fd.send(header + body)
+            body = bytes(json.dumps(self.content), JSONPackage._ENCODING)
+            header_str = ('%%0%dd' % JSONPackage._HEADER_LENGTH) % len(body)
+            send_func(bytes(header_str, JSONPackage._ENCODING) + body)
         except TypeError as e:
             raise JSONPackageError('json: %r' % e)
+        except UnicodeError as e:
+            raise JSONPackageError('Cannot encode the string: %r.' % e)
 
-    def recv_from(self, fd):
-        """Receives a string from the tcp-connection.
+    def recv(self, recv_func):
+        """Receives a json object from a gived function.
+
+        It will calls the give function like this:
+            recv_func(<num_of_bytes>) => bytes with length <num_of_bytes>
 
         Args:
-            fd: Socket fd.
+            recv_func: A function to be called to get the serialize data.
         """
-        header = JSONPackage._recv_header_string(fd)
-        body = JSONPackage._recv_body_string(fd, header)
         try:
-            self.content = json.loads(body)
+            header_str = str(recv_func(JSONPackage._HEADER_LENGTH),
+                             JSONPackage._ENCODING)
+            body_str = str(recv_func(int(header_str)), JSONPackage._ENCODING)
+        except UnicodeError as e:
+            raise JSONPackageError('Cannot decode the bytes: %r.' % e)
+        except ValueError as e:
+            raise JSONPackageError('Cannot get the body length %r' % e)
+        try:
+            self.content = json.loads(body_str)
         except ValueError as e:
             raise JSONPackageError('Cannot loads to the json object: %r' % e)
-
-    @staticmethod
-    def _create_body_from_string(string):
-        """Creates package body from data string.
-
-        Args:
-            string: Data string.
-
-        Returns:
-            Package body.
-        """
-        byte_string = string.encode(JSONPackage.ENCODING)
-        return zlib.compress(byte_string, JSONPackage.COMPRESS_LEVEL)
-
-    @staticmethod
-    def _create_header_from_body(body):
-        """Creates package header from package body.
-
-        Args:
-            body: Package body.
-
-        Returns:
-            Package header.
-        """
-        header_string = ('%%0%dd' % JSONPackage.HEADER_LENGTH) % len(body)
-        return header_string.encode(JSONPackage.ENCODING)
-
-    @staticmethod
-    def _recv_header_string(conn):
-        """Receives package header from specified tcp connection.
-
-        Args:
-            conn: The specified tcp connection.
-
-        Returns:
-            Package header.
-        """
-        try:
-            byte = conn.recv(JSONPackage.HEADER_LENGTH)
-            return byte.decode(JSONPackage.ENCODING)
-        except UnicodeError as e:
-            raise JSONPackageError('Cannot decode the header string: %r.' % e)
-
-    @staticmethod
-    def _recv_body_string(conn, header):
-        """Receives package body from specified tcp connection and header.
-
-        Args:
-            conn: The specified tcp connection.
-            header: The package header.
-
-        Returns:
-            Package body.
-        """
-        try:
-            body_length = int(header)
-            body = conn.recv(body_length)
-            body_byte = zlib.decompress(body)
-            return body_byte.decode(JSONPackage.ENCODING)
-        except UnicodeError as e:
-            raise JSONPackageError('Cannot decode the body string: %r.' % e)
-        except ValueError as e:
-            raise JSONPackageError('Cannot get the body_length: %r' % e)
-        except zlib.error as e:
-            raise JSONPackageError('Cannot decompress the body: %r.' % e)

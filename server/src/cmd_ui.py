@@ -1,20 +1,26 @@
-"""Command line user interface."""
+"""Command line user interface"""
 
 import cmd
 import re
 import threading
 
-from authority_string_transformer import AuthorityStringTransformer
-from authority_string_transformer import AuthorityStringTransformerError
-from users_text_manager import UNKNOWN
-from users_text_manager import UsersTextManagerError
+import authority_string_transformer
 
-INTRO = ''
+INTRO = 'Type the command "help" for help document.'
 PROMPT = '> '
 
 
 class CmdUI(cmd.Cmd):  # pylint: disable=R0904
     """Command line user interface.
+
+    It's a simple UI for doing operation on server, supplied commands:
+        - Add/delete/reset a user
+        - List (online) users
+        - Save/load the user list to/from a file.
+        - Exit.
+        - Prints the help document.
+
+    And it is also the main output interface of the whole program.
 
     Attributes:
         _users_text_manager: An instance of UsersTextManager.
@@ -22,12 +28,16 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
         _shared_vim_server: An instance of SharedVimServer.
         _exit_flag: Whether this UI should stop or not.
         _thread: Instance of Thread.
+        _init_cmds: Initialize commands.
     """
-    def __init__(self, users_text_manager, tcp_server, shared_vim_server):
+    def __init__(self,
+                 init_cmds, users_text_manager, tcp_server, shared_vim_server):
         """Constructor.
 
         Args:
+            init_cmds: Lists of commands to run after startup.
             users_text_manager: An instance of UsersTextManager.
+            tcp_server: An instance of TCPServer.
             shared_vim_server: An instance of SharedVimServer.
         """
         super(CmdUI, self).__init__(INTRO)
@@ -37,126 +47,113 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
         self._shared_vim_server = shared_vim_server
         self._stop_flag = False
         self._thread = None
+        self._init_cmds = init_cmds
 
     def do_add(self, text):
         """Adds a user, [usage] add <identity> <nickname> <authority>"""
         try:
             identity, nickname, authority_str = _split_text(text, 3)
-            authority = AuthorityStringTransformer.to_number(authority_str)
+            if identity in self._users_text_manager.get_users_info():
+                self.write('The identity %r is already in used.\n' % identity)
+                return
+            authority = authority_string_transformer.to_number(authority_str)
             self._users_text_manager.add_user(identity, nickname, authority)
-            self.write('Done\n')
+            user_info = self._users_text_manager.get_users_info()[identity]
+            self.write('Added %s => %s\n' % (identity, str(user_info)))
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] add <identity> <nickname> <authority>\n')
-        except AuthorityStringTransformerError as e:
-            self.write('Fail: %r\n' % e)
-        except UsersTextManagerError as e:
+        except authority_string_transformer.Error as e:
             self.write('Fail: %r\n' % e)
 
     def do_delete(self, text):
         """Deletes a user, [usage] delete <identity>"""
         try:
             identity = _split_text(text, 1)[0]
+            if identity not in self._users_text_manager.get_users_info():
+                self.write('The identity %r is not in used.\n' % identity)
+                return
             self._users_text_manager.delete_user(identity)
             self.write('Done\n')
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] delete <identity>\n')
-        except UsersTextManagerError as e:
-            self.write('Fail: %r\n' % e)
 
     def do_deleteall(self, text):
         """Deletes all users, [usage] deleteall"""
         try:
             _split_text(text, 0)
-            for identity in self._users_text_manager.get_users_info().keys():
+            for identity in self._users_text_manager.get_users_info():
                 self._users_text_manager.delete_user(identity)
             self.write('Done\n')
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] deleteall\n')
-        except UsersTextManagerError as e:
-            self.write('Fail: %r\n' % e)
 
     def do_reset(self, text):
         """Resets a user, [usage] reset <identity>"""
         try:
             iden = _split_text(text, 1)[0]
             if iden not in self._users_text_manager.get_users_info():
-                self.write('Fail: Identity %r not found\n' % iden)
-            else:
-                self._users_text_manager.reset_user(iden)
-                self.write('Done\n')
+                self.write('The User with identity %r is not exist.\n' % iden)
+                return
+            self._users_text_manager.reset_user(iden)
+            user_info = self._users_text_manager.get_users_info()[iden]
+            self.write('Reseted %s ==> %s\n' % (iden, str(user_info)))
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] reset <identity>\n')
-        except UsersTextManagerError as e:
-            self.write('Fail: %r\n' % e)
 
     def do_list(self, text):
         """Lists users, [usage] list"""
         try:
             _split_text(text, 0)
-            for iden, user in self._users_text_manager.get_users_info().items():
-                self.write('%r => %s' % (iden, user))
+            infos = self._users_text_manager.get_users_info().items()
+            for iden, user in sorted(infos, key=lambda x: x[0]):
+                self.write('%-10s => %s' % (iden, str(user)))
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] list\n')
-        except UsersTextManagerError as e:
-            self.write('Fail: %r\n' % e)
 
     def do_online(self, text):
         """Lists online users, [usage] online"""
         try:
             _split_text(text, 0)
-            for iden, user in self._users_text_manager.get_users_info().items():
-                if user.mode == UNKNOWN:
-                    continue
-                self.write('%r => %s' % (iden, user))
+            infos = self._users_text_manager.get_users_info(
+                must_online=True).items()
+            for iden, user in sorted(infos, key=lambda x: x[0]):
+                self.write('%-10s => %s' % (iden, str(user)))
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] online\n')
-        except UsersTextManagerError as e:
-            self.write('Fail: %r\n' % e)
 
     def do_load(self, text):
         """Loads users from a file, [usage] load <filename>"""
         try:
             filename = _split_text(text, 1)[0]
             with open(filename, 'r') as f:
-                while True:
-                    line = f.readline()
-                    if line.endswith('\n'):
-                        line = line[:-1]
+                for line in f.readlines():
+                    line = line if not line.endswith('\n') else line[ : -1]
                     if not line:
-                        break
-                    try:
-                        iden, nick, auth_str = _split_text(line, 3)
-                        auth = AuthorityStringTransformer.to_number(auth_str)
-                        self._users_text_manager.add_user(iden, nick, auth)
-                        self.write('Done %s %s %s' % (iden, nick, auth))
-                    except _SplitTextError:
-                        self.write('Error format in the file.')
-                    except AuthorityStringTransformerError as e:
-                        self.write('Fail: %r\n' % e)
-                    except UsersTextManagerError as e:
-                        self.write('Fail: %r\n' % e)
+                        continue
+                    self.do_add(line)
             self.write('Done')
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] load <filename>\n')
         except IOError as e:
-            self.write('Cannot open file? %s' % str(e))
+            self.write('Error occured when opening the file: %r' % e)
 
     def do_save(self, text):
         """Saves users list to file, [usage] save <filename>"""
         try:
             filename = _split_text(text, 1)[0]
             with open(filename, 'w') as f:
-                users_info = self._users_text_manager.get_users_info()
-                for iden, user in users_info.items():
-                    auth = AuthorityStringTransformer.to_string(user.authority)
-                    f.write('%s %s %s\n' % (iden, user.nick_name, auth))
+                users_info = self._users_text_manager.get_users_info().items()
+                for iden, user in sorted(users_info, key=lambda x: x[0]):
+                    auth_str = authority_string_transformer.to_string(
+                        user.authority)
+                    f.write('%s %s %s\n' % (iden, user.nick_name, auth_str))
         except _SplitTextError:
             self.write('Format error!\n' +
                        '[usage] save <filename>\n')
@@ -165,12 +162,21 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
 
     def do_port(self, text):
         """Print the server's port."""
-        _split_text(text, 0)
-        self.write('server port = %r' % self._tcp_server.port)
+        try:
+            _split_text(text, 0)
+            self.write('Server port = %r\n' % self._tcp_server.port)
+        except _SplitTextError:
+            self.write('Format error!\n' +
+                       '[usage] port\n')
 
     def do_exit(self, text):
         """Exits the program."""
-        self._shared_vim_server.stop()
+        try:
+            _split_text(text, 0)
+            self._shared_vim_server.stop()
+        except _SplitTextError:
+            self.write('Format error!\n'
+                       '[usage] exit\n')
 
     def do_echo(self, text):  # pylint: disable=R0201
         """Echo."""
@@ -178,9 +184,13 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
 
     def do_help(self, text):
         """Prints the help document, [usage] help"""
-        commands = ['add', 'delete', 'list', 'load', 'save', 'exit', 'echo',
-                    'help']
-        self.write('commands: \n' + ' '.join(commands))
+        try:
+            _split_text(text, 0)
+            commands = [m[3 : ] for m in dir(self) if m.startswith('do_')]
+            self.write('Commands: \n' + ' '.join(commands))
+        except _SplitTextError:
+            self.write('Format error!\n' +
+                       '[usage] help\n')
 
     def do_EOF(self, text):  # pylint: disable=C0103
         """Same as exit"""
@@ -202,25 +212,18 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
         Args:
             text: String to be printed.
         """
-        self.onecmd('echo ' + text)
+        for line in text.splitlines():
+            self.onecmd('echo ' + line)
 
-    def start(self, init_cmds=None):
-        """Starts this CmdUI.
-
-        Args:
-            init_cmds: Lists of commands to run after startup.
-        """
-        def run_cmdloop(cmd_ui):
-            """Calls the method cmdloop()
-
-            Args:
-                cmd_ui: An instnace of CmdUI.
-            """
-            cmd_ui.cmdloop()
-        self._thread = threading.Thread(target=run_cmdloop, args=(self,))
-        self._thread.start()
-        for c in init_cmds if init_cmds else []:
+    def preloop(self):
+        for c in self._init_cmds:
             self.onecmd(c)
+
+    def start(self):
+        """Starts this CmdUI."""
+        self._thread = threading.Thread(target=self.cmdloop,
+                                        args=(INTRO,))
+        self._thread.start()
 
     def stop(self):
         """Stops the command line UI."""
@@ -245,10 +248,10 @@ def _split_text(text, num):
 
     Args:
         text: The string to be splitted.
-        num: Length of the tuple.
+        num: Number of elements in the result tuple.
 
     Return:
-        A num-tuple.
+        A <num>-tuple.
     """
     words = [word for word in re.split(r'[ \t]', text) if word]
     if len(words) != num:

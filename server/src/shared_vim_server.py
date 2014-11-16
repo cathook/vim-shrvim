@@ -57,14 +57,15 @@ class SharedVimServer(threading.Thread):
             raise _SharedVimServerError(str(e) + '\n' + _Args.DOCUMENT)
         self._users_text_manager = UsersTextManager(self._args.saved_filename)
         self._tcp_server = TCPServer(self._args.port, self._users_text_manager)
-        self._cmd_ui = CmdUI(self._users_text_manager, self._tcp_server, self)
+        self._cmd_ui = CmdUI(['load %s' % self._args.user_list_filename],
+                             self._users_text_manager, self._tcp_server, self)
         log.info.interface = self._cmd_ui
         log.error.interface = self._cmd_ui
 
     def run(self):
         """Starts the program."""
         self._tcp_server.start()
-        self._cmd_ui.start(['load %s' % self._args.user_list_filename])
+        self._cmd_ui.start()
         self._cmd_ui.join()
         self._tcp_server.join()
 
