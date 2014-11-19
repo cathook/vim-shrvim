@@ -36,11 +36,11 @@ class _Args(object):
         self.saved_filename = sys.argv[3]
 
 
-class _SharedVimServerError(Exception):
-    """Error raised by SharedVimServer."""
+class _ShrVimServerError(Exception):
+    """Error raised by ShrVimServer."""
     pass
 
-class SharedVimServer(threading.Thread):
+class ShrVimServer(threading.Thread):
     """Main class.
 
     Attributes:
@@ -50,11 +50,11 @@ class SharedVimServer(threading.Thread):
     """
     def __init__(self):
         """Constructor."""
-        super(SharedVimServer, self).__init__()
+        super(ShrVimServer, self).__init__()
         try:
             self._args = _Args()
         except _ArgsError as e:
-            raise _SharedVimServerError(str(e) + '\n' + _Args.DOCUMENT)
+            raise _ShrVimServerError(str(e) + '\n' + _Args.DOCUMENT)
         self._users_text_manager = UsersTextManager(self._args.saved_filename)
         self._tcp_server = TCPServer(self._args.port, self._users_text_manager)
         self._cmd_ui = CmdUI(['load %s' % self._args.user_list_filename],
@@ -82,15 +82,15 @@ class _SignalHandler(object):
         SIGTERM, SIGINT - Exit the program.
 
     Attributes:
-        _shared_vim_server: Instance of SharedVimServer.
+        _shrvim_server: Instance of ShrVimServer.
     """
-    def __init__(self, shared_vim_server):
+    def __init__(self, shrvim_server):
         """Constructor.
 
         Args:
-            shared_vim_server: Instance of SharedVimServer.
+            shrvim_server: Instance of ShrVimServer.
         """
-        self._shared_vim_server = shared_vim_server
+        self._shrvim_server = shrvim_server
         signal.signal(signal.SIGTERM, self._handler)
         signal.signal(signal.SIGINT, self._handler)
 
@@ -101,17 +101,17 @@ class _SignalHandler(object):
             number: The signal number to be handle.
         """
         if number in (signal.SIGTERM, signal.SIGINT):
-            self._shared_vim_server.stop()
+            self._shrvim_server.stop()
 
 
 def main():
     """Program entry point."""
     try:
-        shared_vim_server = SharedVimServer()
-        _SignalHandler(shared_vim_server)
-        shared_vim_server.start()
-        shared_vim_server.join()
-    except _SharedVimServerError as e:
+        shrvim_server = ShrVimServer()
+        _SignalHandler(shrvim_server)
+        shrvim_server.start()
+        shrvim_server.join()
+    except _ShrVimServerError as e:
         print(e)
         sys.exit(1)
 

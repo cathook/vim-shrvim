@@ -25,26 +25,26 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
     Attributes:
         _users_text_manager: An instance of UsersTextManager.
         _tcp_server: An instance of TcpServer.
-        _shared_vim_server: An instance of SharedVimServer.
+        _shrvim_server: An instance of ShrVimServer.
         _exit_flag: Whether this UI should stop or not.
         _thread: Instance of Thread.
         _init_cmds: Initialize commands.
     """
     def __init__(self,
-                 init_cmds, users_text_manager, tcp_server, shared_vim_server):
+                 init_cmds, users_text_manager, tcp_server, shrvim_server):
         """Constructor.
 
         Args:
             init_cmds: Lists of commands to run after startup.
             users_text_manager: An instance of UsersTextManager.
             tcp_server: An instance of TCPServer.
-            shared_vim_server: An instance of SharedVimServer.
+            shrvim_server: An instance of ShrVimServer.
         """
         super(CmdUI, self).__init__()
         self.prompt = PROMPT
         self._users_text_manager = users_text_manager
         self._tcp_server = tcp_server
-        self._shared_vim_server = shared_vim_server
+        self._shrvim_server = shrvim_server
         self._stop_flag = False
         self._thread = None
         self._init_cmds = init_cmds
@@ -173,7 +173,7 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
         """Exits the program."""
         try:
             _split_text(text, 0)
-            self._shared_vim_server.stop()
+            self._shrvim_server.stop()
         except _SplitTextError:
             self.write('Format error!\n'
                        '[usage] exit\n')

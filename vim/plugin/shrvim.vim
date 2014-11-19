@@ -1,40 +1,40 @@
 """""""""""""""""""""""""""""""""""" Commands """"""""""""""""""""""""""""""""""
-command! -nargs=0 SharedVimTryUsePython3 call _SharedVimTryUsePython3(1)
-command! -nargs=0 SharedVimTryUsePython2 call _SharedVimTryUsePython2(1)
-command! -nargs=+ SharedVimConnect call _SharedVimCallPythonFunc('connect', [<f-args>])
-command! -nargs=0 SharedVimDisconnect call _SharedVimCallPythonFunc('disconnect', [])
-command! -nargs=0 SharedVimSync call _SharedVimCallPythonFunc('sync', [])
-command! -nargs=0 SharedVimShowInfo call _SharedVimCallPythonFunc('show_info', [])
-command! -nargs=1 SharedVimSetTimeout call _SharedVimCallPythonFunc('set_bvar', ['TIMEOUT', <f-args>])
-command! -nargs=1 SharedVimSetNumOfGroups call _SharedVimCallPythonFunc('set_bvar', ['NUM_GROUPS', <f-args>])
+command! -nargs=0 ShrVimTryUsePython3 call _ShrVimTryUsePython3(1)
+command! -nargs=0 ShrVimTryUsePython2 call _ShrVimTryUsePython2(1)
+command! -nargs=+ ShrVimConnect call _ShrVimCallPythonFunc('connect', [<f-args>])
+command! -nargs=0 ShrVimDisconnect call _ShrVimCallPythonFunc('disconnect', [])
+command! -nargs=0 ShrVimSync call _ShrVimCallPythonFunc('sync', [])
+command! -nargs=0 ShrVimShowInfo call _ShrVimCallPythonFunc('show_info', [])
+command! -nargs=1 ShrVimSetTimeout call _ShrVimCallPythonFunc('set_bvar', ['TIMEOUT', <f-args>])
+command! -nargs=1 ShrVimSetNumOfGroups call _ShrVimCallPythonFunc('set_bvar', ['NUM_GROUPS', <f-args>])
 
 
 """"""""""""""""""""""""""""""""""""" Setup """"""""""""""""""""""""""""""""""""
 " Highlight for other users.
 for i in range(0, 100)
-    exec 'hi SharedVimNor' . i . ' ctermbg=darkyellow'
-    exec 'hi SharedVimIns' . i . ' ctermbg=darkred'
-    exec 'hi SharedVimVbk' . i . ' ctermbg=darkblue'
+    exec 'hi ShrVimNor' . i . ' ctermbg=darkyellow'
+    exec 'hi ShrVimIns' . i . ' ctermbg=darkred'
+    exec 'hi ShrVimVbk' . i . ' ctermbg=darkblue'
 endfor
 
 
-let g:shared_vim_auto_sync_level = 3
+let g:shrvim_auto_sync_level = 3
 
 
 " Auto commands
-autocmd! InsertLeave * call _SharedVimAutoSync(1)
-autocmd! CursorMoved * call _SharedVimAutoSync(1)
-autocmd! CursorHold * call _SharedVimAutoSync(1)
-autocmd! InsertEnter * call _SharedVimAutoSync(2)
-autocmd! CursorMovedI * call _SharedVimAutoSync(3)
-autocmd! CursorHoldI * call _SharedVimAutoSync(3)
+autocmd! InsertLeave * call _ShrVimAutoSync(1)
+autocmd! CursorMoved * call _ShrVimAutoSync(1)
+autocmd! CursorHold * call _ShrVimAutoSync(1)
+autocmd! InsertEnter * call _ShrVimAutoSync(2)
+autocmd! CursorMovedI * call _ShrVimAutoSync(3)
+autocmd! CursorHoldI * call _ShrVimAutoSync(3)
 
 
 """"""""""""""""""""""""""""""""""" Functions """"""""""""""""""""""""""""""""""
-function! _SharedVimTryUsePython3(show_err)
+function! _ShrVimTryUsePython3(show_err)
     if has('python3')
-        command! -nargs=* SharedVimPython python3 <args>
-        call _SharedVimSetup()
+        command! -nargs=* ShrVimPython python3 <args>
+        call _ShrVimSetup()
         return 1
     else
         if a:show_err
@@ -45,10 +45,10 @@ function! _SharedVimTryUsePython3(show_err)
 endfunction
 
 
-function! _SharedVimTryUsePython2(show_err)
+function! _ShrVimTryUsePython2(show_err)
     if has('python')
-        command! -nargs=* SharedVimPython python <args>
-        call _SharedVimSetup()
+        command! -nargs=* ShrVimPython python <args>
+        call _ShrVimSetup()
         return 1
     else
         if a:show_err
@@ -59,31 +59,31 @@ function! _SharedVimTryUsePython2(show_err)
 endfunction
 
 
-function! _SharedVimCallPythonFunc(func_name, args)
-    if exists('g:shared_vim_setupped') && g:shared_vim_setupped == 1
+function! _ShrVimCallPythonFunc(func_name, args)
+    if exists('g:shrvim_setupped') && g:shrvim_setupped == 1
         if len(a:args) == 0
-            exe 'SharedVimPython ' . a:func_name . '()'
+            exe 'ShrVimPython ' . a:func_name . '()'
         else
             let args_str = '"' . join(a:args, '", "') . '"'
-            exe 'SharedVimPython ' . a:func_name . '(' . args_str . ')'
+            exe 'ShrVimPython ' . a:func_name . '(' . args_str . ')'
         endif
     endif
 endfunction
 
 
-function! _SharedVimAutoSync(level)
-    let level = g:shared_vim_auto_sync_level
-    if exists('b:shared_vim_auto_sync_level')
-        let level = b:shared_vim_auto_sync_level
+function! _ShrVimAutoSync(level)
+    let level = g:shrvim_auto_sync_level
+    if exists('b:shrvim_auto_sync_level')
+        let level = b:shrvim_auto_sync_level
     endif
     if a:level <= level
-        SharedVimSync
+        ShrVimSync
     endif
 endfunction
 
 
-function! _SharedVimSetup()
-SharedVimPython << EOF
+function! _ShrVimSetup()
+ShrVimPython << EOF
 # python << EOF
 # ^^ Force vim highlighting the python code below.
 import json
@@ -127,13 +127,13 @@ class VARNAMES:  # pylint: disable=W0232
     USERS = 'users'  # List of users.
 
 # Name of the normal cursor group.
-NORMAL_CURSOR_GROUP = lambda x: 'SharedVimNor%d' % x
+NORMAL_CURSOR_GROUP = lambda x: 'ShrVimNor%d' % x
 
 # Name of the insert cursor group.
-INSERT_CURSOR_GROUP = lambda x: 'SharedVimIns%d' % x
+INSERT_CURSOR_GROUP = lambda x: 'ShrVimIns%d' % x
 
 # Name of the visual group.
-VISUAL_GROUP = lambda x: 'SharedVimVbk%d' % x
+VISUAL_GROUP = lambda x: 'ShrVimVbk%d' % x
 
 
 DEFAULT_TIMEOUT = 1
@@ -1034,6 +1034,6 @@ endfunction
 
 """""""""""""""""""""""""""""""" Initialize """"""""""""""""""""""""""""""""""""
 
-if _SharedVimTryUsePython3(0) || _SharedVimTryUsePython2(0)
-    let g:shared_vim_setupped = 1
+if _ShrVimTryUsePython3(0) || _ShrVimTryUsePython2(0)
+    let g:shrvim_setupped = 1
 endif
