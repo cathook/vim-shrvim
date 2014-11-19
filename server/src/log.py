@@ -14,7 +14,7 @@ def info(string):
         string: String to be printed.
     """
     with _lock:
-        info.interface.write(string)
+        info.interface.write('info: ' + string)
         info.interface.flush()
 
 info.interface = sys.stdout  # Interface of the info string to be printed at.
@@ -27,7 +27,7 @@ def error(string):
         string: String to be printed.
     """
     with _lock:
-        error.interface.write(string)
+        error.interface.write('error: ' + string)
         error.interface.flush()
 
 error.interface = sys.stderr  # Interface of the error string to be printed at.

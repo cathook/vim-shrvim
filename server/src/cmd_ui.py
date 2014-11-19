@@ -40,7 +40,7 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
             tcp_server: An instance of TCPServer.
             shared_vim_server: An instance of SharedVimServer.
         """
-        super(CmdUI, self).__init__(INTRO)
+        super(CmdUI, self).__init__()
         self.prompt = PROMPT
         self._users_text_manager = users_text_manager
         self._tcp_server = tcp_server
@@ -181,6 +181,14 @@ class CmdUI(cmd.Cmd):  # pylint: disable=R0904
     def do_echo(self, text):  # pylint: disable=R0201
         """Echo."""
         print(text)
+
+    def do_eval(self, text):
+        """For debug, evaluate an peice of python code and prints the result."""
+        try:
+            result = eval(text)  # pylint: disable=W0123
+            self.write('The result is %r\n' % result)
+        except Exception as e:  # pylint: disable=W0703
+            self.write('Exception occured: %r' % e)
 
     def do_help(self, text):
         """Prints the help document, [usage] help"""

@@ -53,8 +53,10 @@ class TextChain(object):
         for info in cursors_info:
             info.apply_commits([cm[1] for cm in self._commits[old_index + 1 :]])
         new_cursors = [cursor_info.position for cursor_info in cursors_info]
-        self._commits.append((new_id, commit))
+        self._commits += [(new_id, commit),
+                          (new_id + 1, _TextCommit(commit.text, commit.text))]
         self.delete(orig_id)
+        self.delete(self._commits[-3][0])
         self._save()
         return new_id, commit.text, new_cursors
 
@@ -190,7 +192,7 @@ class _TextCommit(object):
     @property
     def increased_length(self):
         """Gets the increased length of this commit."""
-        return sum([o.increased_length for o in self._opers])
+        return sum(o.increased_length for o in self._opers)
 
     def copy(self):
         """Returns a copy of myself.
@@ -218,17 +220,9 @@ class _TextCommit(object):
     def get_cursor_info(self, cursor_pos):
         """Gets the cursor information by gived cursor position.
 
-        If the cursor position is in a place that will be modified at this
-        commit, it will return _CursorInfo_OnNewCommit;  Otherwise it will
-        return _CursorInfo_OnOrigText.
-        Ex:
-            The original text with the only oper be "Chage [4, 9) to another
-            string":
-                0 1 2 3 4 5 6 7 8 91011121314
-                a b c d[e f g h i]j k l m n o
-               ^ ^ ^ ^ | | | | | | ^ ^ ^ ^ ^ ^
-               Then for the "^", they belone to _CursorInfo_OnOrigText;
-               Otherwise they belone to _CursorInfo_OnNewCommit.
+        If the cursor position is on character which is inserted at this commit,
+        it will return _CursorInfo_OnNewCommit;  Otherwise it will return
+        _CursorInfo_OnOrigText.
 
         Args:
             cursor_pos: Position of the cursor.
@@ -236,9 +230,12 @@ class _TextCommit(object):
         Return:
             A instance of _CursorInfo_OnNewCommit or _CursorInfo_OnOrigText.
         """
+        offset = 0
         for oper in self._opers:
-            if oper.begin <= cursor_pos <= oper.end:
-                return _CursorInfo_OnNewCommit(oper, cursor_pos - oper.begin)
+            delta = cursor_pos - (oper.begin + offset)
+            if delta <= len(oper.new_text):
+                return _CursorInfo_OnNewCommit(oper, delta)
+            offset += oper.increased_length
         return _CursorInfo_OnOrigText(cursor_pos)
 
     def _rebase_text(self, new_orig_text):
@@ -293,10 +290,12 @@ class _CursorInfo_OnNewCommit(object):
     def position(self):
         """Calculates and returns the final cursor position."""
         dt = self._delta
+        offset = 0
         for oper in self._opers:
-            if oper.begin + dt <= oper.end:
-                return oper.begin + dt
+            if dt <= len(oper.new_text):
+                return oper.begin + offset + dt
             dt -= len(oper.new_text)
+            offset += oper.increased_length
 
 
 class _CursorInfo_OnOrigText(object):

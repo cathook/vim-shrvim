@@ -3,7 +3,7 @@
 from users_text_manager import AUTHORITY
 
 
-_mappings = [
+_MAPPINGS = [
     (AUTHORITY.READONLY, 'RO'),
     (AUTHORITY.READWRITE, 'RW'),
 ]
@@ -23,7 +23,7 @@ def to_string(authority):
     Return:
         Corrosponding authority in string format.
     """
-    for item in _mappings:
+    for item in _MAPPINGS:
         if item[0] == authority:
             return item[1]
     raise Error('Invalid number.')
@@ -38,7 +38,7 @@ def to_number(string):
     Return:
         Corrosponding authority in number format.
     """
-    for item in _mappings:
+    for item in _MAPPINGS:
         if item[1] == string:
             return item[0]
     raise Error('Invalid string.')

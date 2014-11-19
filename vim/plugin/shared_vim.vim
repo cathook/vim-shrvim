@@ -70,11 +70,13 @@ function! _SharedVimCallPythonFunc(func_name, args)
     endif
 endfunction
 
+
 function! _SharedVimAutoSync(level)
-    if !exists('b:shared_vim_auto_sync_level')
-        let b:shared_vim_auto_sync_level = g:shared_vim_auto_sync_level
+    let level = g:shared_vim_auto_sync_level
+    if exists('b:shared_vim_auto_sync_level')
+        let level = b:shared_vim_auto_sync_level
     endif
-    if a:level <= b:shared_vim_auto_sync_level
+    if a:level <= level
         SharedVimSync
     endif
 endfunction
@@ -84,9 +86,7 @@ function! _SharedVimSetup()
 SharedVimPython << EOF
 # python << EOF
 # ^^ Force vim highlighting the python code below.
-import bisect
 import json
-import re
 import socket
 import sys
 import vim
@@ -116,9 +116,10 @@ class MODE:  # pylint:disable=W0232
 
 class VARNAMES:  # pylint: disable=W0232
     """Enumeration types of variable name in vim."""
-    GROUP_NAME_PREFIX = 'gnp'  # Group name's prefix.
+    GROUP_NAME_PREFIX = 'gnp_'  # Group name's prefix.
     IDENTITY = 'identity'  # Identity of the user.
     INIT = 'init'  # Initial or not.
+    LINES = 'lines'  # Lines.
     NUM_GROUPS = 'num_groups'  # Number of groups.
     SERVER_NAME = 'server_name'  # Server name.
     SERVER_PORT = 'port'  # Server port.
@@ -141,15 +142,15 @@ DEFAULT_NUM_GROUPS = 5
 
 class JSON_TOKEN:  # pylint:disable=W0232
     """Enumeration the Ttken strings for json object."""
-    BYE = 'bye'  # Disconnects with the server.
+    BYE = 'bye'  # Resets the user and do nothong.
     CURSORS = 'cursors'  # other users' cursor position
+    DIFF = 'diff'  # Difference between this time and last time.
     ERROR = 'error'  # error string
     IDENTITY = 'identity'  # identity of myself
     INIT = 'init'  # initialize connect flag
     MODE = 'mode'  # vim mode.
     NICKNAME = 'nickname'  # nick name of the user.
     OTHERS = 'others'  # other users info.
-    TEXT = 'text'  # text content in the buffer
 
 
 ############### Handler for Variable stores only in python #####################
@@ -237,11 +238,7 @@ py_wvars = ScopeVars()
 ############################### Interface to vim ###############################
 class VimCursorsInfo(object):  # pylint: disable=W0232
     """Gets/sets the cursor position in vim."""
-    def __init__(self, *_):
-        """Constructor."""
-        self._text_num_sum = []
-
-    def __getitem__(self, mark):
+    def __getitem__(self, mark):  # pylint: disable=R0201
         """Gets the cursor position with specifying the mark.
 
         Args:
@@ -251,86 +248,50 @@ class VimCursorsInfo(object):  # pylint: disable=W0232
             Cursor position.
         """
         pos = [int(x) for x in vim.eval('getpos("%s")' % mark)]
-        return self.rc_to_num((pos[1] - 1, pos[2] - 1))
+        row = pos[1] - 1
+        line = VimInfo.transform_to_vim(VimInfo.lines[row])
+        col = len(VimInfo.transform_to_py(line[ : pos[2] - 1]))
+        return (row, col)
 
-    def __setitem__(self, mark, value):
+    def __setitem__(self, mark, rc):  # pylint: disable=R0201
         """Sets the cursor position with specifying the mark.
 
         Args:
             mark: Mark of the cursor to set.
+            rc: The new cursor position.
         """
-        row, col = self.num_to_rc(value)
+        row, col = self.transform_to_vim(rc)
         mark = mark if mark != CURSOR_MARK.V else CURSOR_MARK.CURRENT
         vim.eval('setpos("%s", [0, %d, %d, 0])' % (mark, row + 1, col + 1))
 
-    def rc_to_num(self, rc):
-        """Transforms row-column cursor position to bytes position.
+    def transform_to_vim(self, rc):  # pylint: disable=R0201
+        """Transform rc in utf-8 to rc in bytes.
 
         Args:
-            rc: Row-column cursor position.
+            rc: Cursor position.
 
         Return:
-            byte position.
+            Cursor position.
         """
-        base = self._text_num_sum[rc[0] - 1] if rc[0] > 0 else 0
-        line = VimInfo.transform_to_vim(VimInfo.lines[rc[0]])
-        return base + len(VimInfo.transform_to_py(line[ : rc[1]]))
-
-    def num_to_rc(self, num, rmin=0):
-        """Transforms byte position to row-column cursor position.
-
-        Args:
-            num: byte cursor position.
-
-        Return:
-            List of row-column position.
-        """
-        row = bisect.bisect_right(self._text_num_sum, num, lo=rmin)
-        col = num - (0 if row == 0 else self._text_num_sum[row - 1])
-        line = VimInfo.lines[row][ : col] if row < len(VimInfo.lines) else ''
-        return (row, len(VimInfo.transform_to_vim(line)))
-
-    def nums_to_rcs(self, nums):
-        """Transforms list of sorted byte positions.
-
-        Args:
-            nums: list of byte cursor positions.
-
-        Return:
-            List of row-column positions.
-        """
-        ret, last_r = [], 0
-        for num in nums:
-            my_rc = self.num_to_rc(num, rmin=last_r)
-            ret += [my_rc]
-            last_r = my_rc[0]
-        return ret
-
-    def update_text_lines(self):
-        """Updates the content lines.
-
-        Args:
-            lines: List of content lines.
-        """
-        self._text_num_sum, pre = [], 0
-        for line in VimInfo.lines:
-            self._text_num_sum += [pre + len(line) + 1]
-            pre += len(line) + 1
+        row = rc[0]
+        line = VimInfo.lines[row] if row < len(VimInfo.lines) else ''
+        col = len(VimInfo.transform_to_vim(line[ : rc[1]]))
+        return (row, col)
 
 
 class GroupInfo(object):
     """Higilights informations about a user group.
 
     Attributes:
-        _normal_cursor_positions: List of cursor positions in normal mode.
-        _insert_cursor_positions: List of cursor positions in insert mode.
-        _visual_positions: List of positions in visual blocks.
+        _normal_cursor_ranges: List of highlight block ranges in normal mode.
+        _insert_cursor_ranges: List of highlight block ranges in insert mode.
+        _visual_ranges: List of highlight block ranges in visual blocks.
     """
     def __init__(self):
         """Constructor."""
-        self._normal_cursor_positions = []
-        self._insert_cursor_positions = []
-        self._visual_positions = []
+        self._normal_cursor_ranges = []
+        self._insert_cursor_ranges = []
+        self._visual_ranges = []
 
     def set_mode_cursor(self, mode, rc):
         """Sets the mode and the cursor.
@@ -340,32 +301,32 @@ class GroupInfo(object):
             rc: The cursor position.
         """
         if mode in (MODE.INSERT, MODE.REPLACE):
-            self._insert_cursor_positions += [rc]
+            self._insert_cursor_ranges.append((rc[0], rc[1], rc[1] + 1))
         else:
-            self._normal_cursor_positions += [rc]
+            self._normal_cursor_ranges.append((rc[0], rc[1], rc[1] + 1))
 
-    def add_visual(self, rc):
+    def add_visual(self, rang):
         """Add a visual position.
 
         Args:
-            rc: The position.
+            rang: The position.
         """
-        self._visual_positions += [rc]
+        self._visual_ranges += [rang]
 
     @property
-    def normal_cursor_positions(self):
-        """Gets the normal cursor positions."""
-        return self._normal_cursor_positions
+    def normal_cursor_ranges(self):
+        """Gets the normal cursor ranges."""
+        return self._normal_cursor_ranges
 
     @property
-    def insert_cursor_positions(self):
-        """Gets the insert cursor positions."""
-        return self._insert_cursor_positions
+    def insert_cursor_ranges(self):
+        """Gets the insert cursor ranges."""
+        return self._insert_cursor_ranges
 
     @property
-    def visual_positions(self):
-        """Gets the visual positions."""
-        return self._visual_positions
+    def visual_ranges(self):
+        """Gets the visual ranges."""
+        return self._visual_ranges
 
 
 class VimHighlightInfo(object):
@@ -406,11 +367,11 @@ class VimHighlightInfo(object):
         """Render the highlight to vim."""
         for index in range(self.num_of_groups()):
             VimInfo.match(NORMAL_CURSOR_GROUP(index), MATCH_PRI.NORMAL,
-                          self._groups[index].normal_cursor_positions)
+                          self._groups[index].normal_cursor_ranges)
             VimInfo.match(INSERT_CURSOR_GROUP(index), MATCH_PRI.INSERT,
-                          self._groups[index].insert_cursor_positions)
+                          self._groups[index].insert_cursor_ranges)
             VimInfo.match(VISUAL_GROUP(index), MATCH_PRI.VISUAL,
-                          self._groups[index].visual_positions)
+                          self._groups[index].visual_ranges)
 
     def _get_group_id(self, string):
         """Transform the gived string to a valid group index.
@@ -432,6 +393,91 @@ class VimHighlightInfo(object):
         return py_bvars.get(VARNAMES.NUM_GROUPS, DEFAULT_NUM_GROUPS)
 
 
+class VimLinesInfo(object):
+    """An interface for accessing the vim's buffer.
+
+    Attributes:
+        _lines: An list of lines, which is encoded text got from vim.buffer.
+    """
+    def __init__(self):
+        """Constructor."""
+        self._lines = [VimInfo.transform_to_py(line)
+                       for line in vim.current.buffer]
+
+    def __getitem__(self, index):
+        """Get a specified line.
+
+        Args:
+            index: The line number.
+        """
+        return self._lines[index]
+
+    def __setitem__(self, index, text):
+        """Sets a specified line.
+
+        Args:
+            index: The line number.
+            text: The new text.
+        """
+        self._lines[index] = text
+        if isinstance(index, slice):
+            lines = [VimInfo.transform_to_vim(line) for line in text]
+            if index.start is not None and index.stop is not None:
+                vim.current.buffer[index.start : index.stop] = lines
+            elif index.start is None and index.stop is not None:
+                vim.current.buffer[ : index.stop] = lines
+            elif index.start is not None and index.stop is None:
+                vim.current.buffer[index.start : ] = lines
+            else:
+                vim.current.buffer[:] = lines
+        else:
+            vim.current.buffer[index] = VimInfo.transform_to_vim(text)
+
+    def __len__(self):
+        """Gets the number of rows."""
+        return len(self._lines)
+
+    def gen_patch(self, orig_lines):
+        """Creates a patch from an old one.
+
+        Args:
+            orig_lines: Original lines of the text.
+
+        Return:
+            A list of replacing information.
+        """
+        orig_rows, new_rows = len(orig_lines), len(self._lines)
+        for first in range(min(orig_rows, new_rows)):
+            if orig_lines[first] != self._lines[first]:
+                break
+        else:
+            if orig_rows < new_rows:
+                return [(orig_rows, orig_rows, self._lines[orig_rows : ])]
+            elif orig_rows > new_rows:
+                return [(first + 1, orig_rows, [])]
+            else:
+                return []
+        delta = new_rows - orig_rows
+        for last in range(orig_rows - 1, first - 1, -1):
+            if orig_lines[last] != self._lines[last + delta]:
+                break
+        return [(first, last + 1, self._lines[first : last + delta + 1])]
+
+    def apply_patch(self, patch_info):
+        """Applies a patch.
+
+        Args:
+            patch_info: A list of replacing information.
+
+        Return:
+            A list of text.
+        """
+        offset = 0
+        for beg, end, lines in patch_info:
+            self.__setitem__(slice(beg + offset, end + offset), lines)
+            offset += len(lines) - (end - beg)
+
+
 class VimInfoMeta(type):
     """An interface for accessing the vim's vars, buffer, cursors, etc.
 
@@ -449,29 +495,16 @@ class VimInfoMeta(type):
     def __init__(self, *args):
         """Constructor."""
         self._mode = None
+        self._lines = None
+
+    def init(self):
+        """Initialize informations for this time."""
+        self._lines = VimLinesInfo()
 
     @property
-    def lines(self):  # pylint: disable=R0201
+    def lines(self):
         """Gets list of lines in the buffer."""
-        return [VimInfo.transform_to_py(line) for line in vim.current.buffer[:]]
-
-    @lines.setter
-    def lines(self, lines):  # pylint: disable=R0201
-        """Sets the buffer by list of lines."""
-        tr = [VimInfo.transform_to_vim(line) for line in lines]
-        vim.current.buffer[0 : len(vim.current.buffer)] = tr
-
-    @property
-    def text(self):
-        """Gets the buffer text."""
-        return '\n'.join(self.lines)
-
-    @text.setter
-    def text(self, text):
-        """Sets the buffer text."""
-        lines = re.split('\n', text)
-        self.lines = lines if lines else ['']
-        VimInfo.cursors.update_text_lines()
+        return self._lines
 
     @property
     def mode(self):
@@ -523,8 +556,13 @@ class VimInfoMeta(type):
             vim.eval('matchdelete(%d)' % last_id)
             del py_wvars[VARNAMES.GROUP_NAME_PREFIX + group_name]
         if positions:
-            rcs = [(rc[0] + 1, rc[1] + 1) for rc in positions]
-            patterns = '\\|'.join(['\\%%%dl\\%%%dc' % rc for rc in rcs])
+            rcs = []
+            for row, col_beg, col_end in positions:
+                col_beg = VimInfo.cursors.transform_to_vim((row, col_beg))[1]
+                col_end = VimInfo.cursors.transform_to_vim((row, col_end))[1]
+                rcs += [(row, col) for col in range(col_beg, col_end)]
+            patterns = '\\|'.join(['\\%%%dl\\%%%dc' % (rc[0] + 1, rc[1] + 1)
+                                   for rc in rcs])
             mid = int(vim.eval("matchadd('%s', '%s', %d)" %
                                (group_name, patterns, priority)))
             if mid != -1:
@@ -558,6 +596,37 @@ class VimInfoMeta(type):
         return (data if not isinstance(data, unicode)
                      else data.encode(VimInfo.ENCODING))
 
+    @staticmethod
+    def display_width(data):
+        """Gets the width for the data to be display.
+
+        Args:
+            data: The data.
+
+        Return:
+            A number.
+        """
+        return vim.strwidth(VimInfo.transform_to_vim(data))
+
+    @staticmethod
+    def confirm(prompt, options=None, default=None):
+        """Confirm something from the user.
+
+        Args:
+            prompt: Prompt string.
+            options: List of options.
+            default: Default option.
+        """
+        if options is None:
+            ret = vim.eval('confirm("%s")' % prompt)
+        elif default is None:
+            ret = vim.eval('confirm("%s", "%s")' %
+                           (prompt, '\\n'.join('&' + o for o in options)))
+        else:
+            ret = vim.eval('confirm("%s", "%s", "%s")' %
+                           (prompt, '\\n'.join('&' + o for o in options),
+                            default))
+        return int(ret) - 1
 
 # Copy from https://bitbucket.org/gutworth/six/src/c17477e81e482d34bf3cda043b2eca643084e5fd/six.py
 def with_metaclass(meta, *bases):
@@ -570,10 +639,7 @@ def with_metaclass(meta, *bases):
 
 class VimInfo(with_metaclass(VimInfoMeta, object)):  # pylint: disable=W0232
     """An interface for accessing the vim's vars, buffer, cursors, etc."""
-    @staticmethod
-    def init():
-        """Initializes some settings."""
-        VimInfo.cursors.update_text_lines()
+    pass
 
 
 ########################### About connection to server #########################
@@ -742,6 +808,7 @@ class TCPClient(object):
             JSONPackage(req).send(self._conn.send_all)
             return JSONPackage(recv_func=self._conn.recv_all).content
         except socket.error as e:
+            self.close()
             raise TCPClientError(e)
         except JSONPackageError as e:
             raise TCPClientError(e)
@@ -756,9 +823,10 @@ class TCPClient(object):
 
 
 ################################ Some operations ###############################
-def set_scopes():
-    py_bvars.curr_scope = vim.current.buffer.number
-    py_wvars.curr_scope = vim.current.window.number
+def init_for_this_time():
+    py_bvars.curr_scope = vim.current.buffer
+    py_wvars.curr_scope = vim.current.window
+    VimInfo.init()
 
 def get_my_info(init):
     """Gets my information for server.
@@ -773,7 +841,8 @@ def get_my_info(init):
                 CURSOR_MARK.CURRENT : VimInfo.cursors[CURSOR_MARK.CURRENT],
                 CURSOR_MARK.V : VimInfo.cursors[CURSOR_MARK.V],
             },
-            JSON_TOKEN.TEXT : VimInfo.text}
+            JSON_TOKEN.DIFF : VimInfo.lines.gen_patch(
+                py_bvars.get(VARNAMES.LINES, ['']))}
 
 
 def set_my_info(json_info):
@@ -782,7 +851,8 @@ def set_my_info(json_info):
     Args:
         json_info: JSON information gived by server.
     """
-    VimInfo.text = json_info[JSON_TOKEN.TEXT]
+    VimInfo.lines.apply_patch(json_info[JSON_TOKEN.DIFF])
+    py_bvars[VARNAMES.LINES] = VimInfo.lines[:]
     mode = json_info[JSON_TOKEN.MODE]
     VimInfo.mode = mode
     if mode in (MODE.VISUAL, MODE.BLOCK_VISUAL, MODE.LINE_VISUAL):
@@ -805,10 +875,10 @@ def set_others_info(json_info):
     for user in users:
         name, mode = user[JSON_TOKEN.NICKNAME], user[JSON_TOKEN.MODE]
         cursors = user[JSON_TOKEN.CURSORS]
-        curr_rc = VimInfo.cursors.num_to_rc(cursors[CURSOR_MARK.CURRENT])
+        curr_rc = cursors[CURSOR_MARK.CURRENT]
         VimInfo.highlight[name].set_mode_cursor(mode, curr_rc)
         if mode in (MODE.VISUAL, MODE.LINE_VISUAL, MODE.BLOCK_VISUAL):
-            last_rc = VimInfo.cursors.num_to_rc(cursors[CURSOR_MARK.V])
+            last_rc = cursors[CURSOR_MARK.V]
             if last_rc[0] > curr_rc[0] or \
                 (last_rc[0] == curr_rc[0] and last_rc[1] > curr_rc[1]):
                 last_rc, curr_rc = curr_rc, last_rc
@@ -826,19 +896,41 @@ def set_other_visual(name, mode, beg, end):
     """
     if mode == MODE.VISUAL:
         for row in range(beg[0], end[0] + 1):
-            first = 0 if row != beg[0] else beg[1]
-            last = len(VimInfo.lines[row]) if row != end[0] else end[1]
-            for col in range(first, last + 1):
-                VimInfo.highlight[name].add_visual((row, col))
+            col_beg = 0 if row != beg[0] else beg[1]
+            col_end = (len(VimInfo.lines[row]) if row != end[0] else end[1]) + 1
+            VimInfo.highlight[name].add_visual((row, col_beg, col_end))
     elif mode == MODE.LINE_VISUAL:
         for row in range(beg[0], end[0] + 1):
-            for col in range(0, len(VimInfo.lines[row])):
-                VimInfo.highlight[name].add_visual((row, col))
+            VimInfo.highlight[name].add_visual(
+                (row, 0, len(VimInfo.lines[row]) + 1))
     elif mode == MODE.BLOCK_VISUAL:
-        left, right = min([beg[1], end[1]]), max([beg[1], end[1]])
-        for row in range(beg[0], end[0] + 1):
-            for col in range(left, right + 1):
-                VimInfo.highlight[name].add_visual((row, col))
+        set_other_block_visual(name, beg, end)
+
+
+def set_other_block_visual(name, beg, end):
+    """Sets the other user's virtical-visual block.
+
+    Args:
+        name: Name of this user.
+        beg: The first row-column position of the range.
+        end: The last row-column position of the range.
+    """
+    w1 = VimInfo.display_width(VimInfo.lines[beg[0]][ : beg[1]])
+    w2 = VimInfo.display_width(VimInfo.lines[end[0]][ : end[1]])
+    left, right = min(w1, w2), max(w1, w2)
+    for row in range(beg[0], end[0] + 1):
+        for beg_col in range(len(VimInfo.lines[row]) + 1):
+            w = VimInfo.display_width(VimInfo.lines[row][ : beg_col])
+            if left < w:
+                beg_col -= 1
+                break
+        else:
+            continue
+        for end_col in range(beg_col, len(VimInfo.lines[row]) + 1):
+            w = VimInfo.display_width(VimInfo.lines[row][ : end_col])
+            if right < w:
+                break
+        VimInfo.highlight[name].add_visual((row, beg_col, end_col))
 
 
 ############################## Supported operations ############################
@@ -850,7 +942,14 @@ def connect(server_name, server_port, identity):
         server_port: Server port.
         identity: Identity string of this user.
     """
-    set_scopes()
+    init_for_this_time()
+    if len(VimInfo.lines) > 1 or len(VimInfo.lines[0]) > 0:
+        c = VimInfo.confirm(
+            'This tool will rewrite the whole buffer, continue? ',
+            ['Yes', 'No'], 'No')
+        if c != 0:
+            return
+    VimInfo.lines[:] = ['']
     py_bvars[VARNAMES.SERVER_NAME] = server_name
     py_bvars[VARNAMES.SERVER_PORT] = int(server_port)
     py_bvars[VARNAMES.IDENTITY] = identity
@@ -864,7 +963,7 @@ def sync(init=False):
         init: Flag for whether it should tell the server to reset this user or
                 not.
     """
-    set_scopes()
+    init_for_this_time()
     if VARNAMES.SERVER_NAME in py_bvars:
         try:
             conn = TCPClient(py_bvars[VARNAMES.SERVER_NAME],
@@ -884,7 +983,7 @@ def sync(init=False):
 
 def disconnect():
     """Disconnects with the server."""
-    set_scopes()
+    init_for_this_time()
     if VARNAMES.SERVER_NAME in py_bvars:
         VimInfo.highlight.reset([])
         VimInfo.highlight.render()
@@ -905,7 +1004,7 @@ def disconnect():
 
 def show_info():
     """Shows the informations."""
-    set_scopes()
+    init_for_this_time()
     print('Highlight information:')
     print('Groups of normal cursor position:')
     for index in range(VimInfo.highlight.num_of_groups()):
@@ -926,13 +1025,9 @@ def set_bvar(variable_name, value):
         variable_name: Variable name.
         value: Value.
     """
-    set_scopes()
+    init_for_this_time()
     py_bvars[getattr(VARNAMES, variable_name)] = value
     print('bvars[%s] = %s' % (getattr(VARNAMES, variable_name), value))
-
-
-################################## Initialize ##################################
-VimInfo.init()
 
 EOF
 endfunction

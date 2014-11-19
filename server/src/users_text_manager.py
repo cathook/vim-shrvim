@@ -113,9 +113,9 @@ class UsersTextManager(object):
         with self._rlock:
             without = without if without is not None else []
             online_check = lambda x: (x != UNKNOWN if must_online else True)
-            return dict([pair for pair in self._users.items()
-                         if pair[0] not in without and \
-                             online_check(pair[1].mode)])
+            return dict(pair for pair in self._users.items()
+                        if pair[0] not in without and \
+                           online_check(pair[1].mode))
 
     def update_user_text(self, identity, new_user_info, new_text):
         """Updates a user's information with new information and text.
@@ -134,14 +134,14 @@ class UsersTextManager(object):
                 self._users[identity].last_commit_id, new_text, curs)
             self._users[identity].last_commit_id = new_commit_id
             self._users[identity].mode = new_user_info.mode
-            self._users[identity].cursors = _lists_to_dict(curmarks, new_curs)
+            self._users[identity].cursors = dict(zip(curmarks, new_curs))
             for iden, user in self._users.items():
                 if iden == identity:
                     continue
                 curmarks = user.cursors.keys()
                 curs = [user.cursors[mark] for mark in curmarks]
                 new_curs = self._text_chain.update_cursors(curs)
-                user.cursors = _lists_to_dict(curmarks, new_curs)
+                user.cursors = dict(zip(curmarks, new_curs))
             return (self._users[identity], new_text)
 
     def get_user_text(self, identity):
@@ -156,17 +156,3 @@ class UsersTextManager(object):
         with self._rlock:
             return self._text_chain.get_text(
                 self._users[identity].last_commit_id)
-
-
-def _lists_to_dict(list1, list2):
-    """Combines each element in two lists.
-
-    Args:
-        list1: The first list.
-        list2: The second list.
-
-    Return:
-        A list with each element be a tuple of two element in list1 and list2.
-    """
-    l1, l2 = list(list1), list(list2)
-    return {l1[index] : l2[index] for index in range(len(l1))}
