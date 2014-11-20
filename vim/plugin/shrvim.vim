@@ -25,7 +25,6 @@ let g:shrvim_auto_sync_level = 3
 autocmd! InsertLeave * call _ShrVimAutoSync(1)
 autocmd! CursorMoved * call _ShrVimAutoSync(1)
 autocmd! CursorHold * call _ShrVimAutoSync(1)
-autocmd! InsertEnter * call _ShrVimAutoSync(2)
 autocmd! CursorMovedI * call _ShrVimAutoSync(3)
 autocmd! CursorHoldI * call _ShrVimAutoSync(3)
 
@@ -461,6 +460,8 @@ class VimLinesInfo(object):
         for last in range(orig_rows - 1, first - 1, -1):
             if orig_lines[last] != self._lines[last + delta]:
                 break
+        else:
+            last -= 1
         return [(first, last + 1, self._lines[first : last + delta + 1])]
 
     def apply_patch(self, patch_info):
