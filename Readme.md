@@ -96,7 +96,10 @@ After this, you will see a command-line ui.
 #### Stop the server
 
 Type the command
-```exit```
+
+```
+exit
+```
 
 ## Prerequest
 
