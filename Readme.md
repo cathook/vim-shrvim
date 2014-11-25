@@ -44,9 +44,9 @@ created the server), you can:
 
 #### Sync
 
-By default, ShrVim syncs each time you move the cursor, insert a character, etc,
-but this might cause your vim be a little bit laggy.  So you might set it to only
-sync when you type the command (Detail sees below).
+By default, ShrVim syncs each time you move the cursor, insert a character, etc.
+This might cause your vim be a little bit laggy, so you might set it to only sync
+when you type the command (Detail sees below).
 
 ```
 :ShrVimSync
@@ -113,8 +113,8 @@ exit
 
 ## Settings
 
-If your vim supports both +python and +python3, and you want to force this
-plugin use python2, you can type:
+If your vim supports both +python and +python3, and you want to force ShrVim to
+use python2, you can type:
 
 ```
 :ShrVimTryUsePython2
@@ -126,16 +126,16 @@ Otherwise, you can type:
 :ShrVimTryUsePython3
 ```
 
-About the frequency of syncing, you can setup it by:
+To set the frequency of syncing, you can use:
 
 ```let [g/b]:shr_vim_auto_sync_level = 3/2/1/0``` (Default 3)
 
-Where 0 means you shoul always call ```:ShrVimSync``` by manual.  And it is a
+Where 0 means clients should always call ```:ShrVimSync``` by manual.  And it is a
 good idea to map a key to this command like:
 
 ```:map <F5> :ShrVimSync<CR>```
 
 ## Issues
-- Server might be inefficient when too much users online.
-- If someone use utf8 to insert an utf8 only character, the one use big5 or
+- Server might be inefficient with too many users online.
+- If a client uses utf8 to insert an utf8 only character, other clients using big5 or
   something similar will crash.
