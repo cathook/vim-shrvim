@@ -11,13 +11,13 @@ asciidoc, LaTex, etc.
 
 ## Features
 
-- Each user has its own cursor, so usres can edit the different place in the
+- Each user has their own cursor, so users can edit different places in the
   file at same time.
 - You can see where other cursors are.
-- RO/RW authority mechanism let the owner be able to restrict a user being read
-  only mode.
+- RO/RW authority mechanism allows the owner to restrict a user to read only
+  mode.
 - Each client can have different encodings.
-- Non-ANSI, such as chinese characters are allowed.
+- Non-ANSI, such as Chinese characters are allowed.
 - Live update in Insert mode
 
 ## Quick start
@@ -44,8 +44,8 @@ created the server), you can:
 
 #### Sync
 
-Default it will do sync each time you move the cursor, insert a character, etc,
-but it might cause your vim be a little bit lag.  So you might set it to be only
+By default, ShrVim syncs each time you move the cursor, insert a character, etc,
+but this might cause your vim be a little bit laggy.  So you might set it to only
 sync when you type the command (Detail sees below).
 
 ```
@@ -62,10 +62,10 @@ sync when you type the command (Detail sees below).
 
 #### User list
 
-Create an file stores the user list (you can use /dev/null if you want to skip
-this step).  In the file, each row should contains three word to represent a
-user: ```<identity> <nickname> <authorith>``` where authority can be only "RO"
-or "RW".  Empty line is allowed.
+Create a file that stores the user list (you can use /dev/null if you want to skip
+this step).  In the file, each row should contain three attributes to represent a
+user: ```<identity> <nickname> <authority>``` where <authority> can only be either "RO"
+or "RW".  Empty lines are allowed.
 
 Example:
 ```
@@ -76,20 +76,20 @@ jkl238 user3 RO
 sdjfb8 user4 RO
 ```
 
-This file is optional because you can add/delete the user after starting the
-server, it has an simple command-line ui.
+This file is optional because you can add/delete users dynamically after starting the
+server, there is a simple command-line ui.
 
-**IMPORTANT:** Each user should have different identity.
+**IMPORTANT:** Each user should have a different identity.
 
-#### Start the server
+#### Starting the server
 
 ```
 server/src/shrvim_server.py <port> <user_list_file> <storage_file>
 ```
 
-Where ```<Storage_file>``` should contains the initial context of the shared
-file, and during editing, the server will stores the context of the latest
-version into it.  If you do not want such the file, you can use /dev/null again.
+Where ```<Storage_file>``` should contain the initial content of the shared
+file. Then during editing, the server will store the content of the latest
+version into it.  If you do not want such file, you can use /dev/null as again.
 
 After this, you will see a command-line ui.
 
@@ -101,7 +101,7 @@ Type the command
 exit
 ```
 
-## Prerequisite
+## Prerequisites
 
 ### Client
 
@@ -120,7 +120,7 @@ plugin use python2, you can type:
 :ShrVimTryUsePython2
 ```
 
-On the opposite, there is a command:
+Otherwise, you can type:
 
 ```
 :ShrVimTryUsePython3
