@@ -101,7 +101,7 @@ Type the command
 exit
 ```
 
-## Prerequest
+## Prerequisite
 
 ### Client
 
