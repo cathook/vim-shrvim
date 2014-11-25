@@ -5,7 +5,7 @@
 It is a vim plugin like google-doc, which allows multiple users to share and
 edit a file at the same time, without sharing only one cursor.  This is useful
 when a group needs to create a report with plain-text source such as Markdown,
-asciidoc, LaTex, etc.
+asciidoc, LaTeX, etc.
 
 ![Quick look](http://www.csie.ntu.edu.tw/~b01902109/misc/shrvim.gif)
 
