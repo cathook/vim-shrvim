@@ -113,7 +113,7 @@ exit
 
 ## Settings
 
-If your vim supports both +python and +python3, and you want to force ShrVim to
+If your vim supports both +python2 and +python3, and you want to force ShrVim to
 use python2, you can type:
 
 ```
