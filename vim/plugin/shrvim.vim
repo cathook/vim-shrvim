@@ -453,7 +453,7 @@ class VimLinesInfo(object):
             if orig_rows < new_rows:
                 return [(orig_rows, orig_rows, self._lines[orig_rows : ])]
             elif orig_rows > new_rows:
-                return [(first + 1, orig_rows, [])]
+                return [(new_rows, orig_rows, [])]
             else:
                 return []
         delta = new_rows - orig_rows
